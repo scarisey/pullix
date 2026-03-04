@@ -32,10 +32,8 @@ async fn run_pullix(
         let _loop = span!(Level::TRACE, "loop");
         let _loop_span = _loop.enter();
         debug!("Enter loop");
-        sleep(Duration::from_secs(
-            config.poll_interval_secs - elapsed_secs,
-        ))
-        .await;
+        let delay = config.poll_interval_secs.saturating_sub(elapsed_secs);
+        sleep(Duration::from_secs(delay)).await;
         let start_time = std::time::Instant::now();
         debug!("Imposed delay");
 
