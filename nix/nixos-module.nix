@@ -233,13 +233,13 @@ in {
       };
     };
 
-    services.prometheus.scrapeConfigs = mkIf (config.services.prometheus.enable && (isNotNull cfg.prometeheusExporterEndpoint)) [
-      {
-        job_name = "pullix";
-        static_configs = [
-          {targets = [];}
-        ];
-      }
-    ];
+    # services.prometheus.scrapeConfigs = mkIf (config.services.prometheus.enable && (isNotNull cfg.prometeheusExporterEndpoint)) [
+    #   {
+    #     job_name = "pullix";
+    #     static_configs = [
+    #       {targets = [];}
+    #     ];
+    #   }
+    # ];
   };
 }
