@@ -48,7 +48,7 @@ jobs:
         run: |
           nix run --accept-flake-config .#packages.x86_64-linux.devenv shell -- cargo update
           git add Cargo.lock Cargo.toml
-          git commit -m "build:update Cargo.lock & Cargo.toml"
+          git diff --cached --quiet || git commit -m "build:update Cargo.lock & Cargo.toml"
       - name: Push changes to remote
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,4 +56,4 @@ jobs:
           git push --force --set-upstream origin ci/auto_update
           gh pr create --title "CI:Auto Update" --body "Automatic update from CI" || true
           gh pr merge --rebase --auto
-          gh workflow run 241061830 --ref 'ci/auto_update'
+          gh workflow run build.yml --ref 'ci/auto_update'
