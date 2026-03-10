@@ -157,11 +157,11 @@ Pullix is a pull-based deployment daemon that periodically polls a remote Git re
   NIX_CONFIG=access-tokens = github.com=ghp_xxx
   ```
 
-### `services.pullix.prometeheusExporterEndpoint`
+### `services.pullix.otelHttpEndpoint`
 
 - **Type:** `null` or `str`
 - **Default:** `null`
-- **Description:** If set, enables a Prometheus metrics exporter at the given endpoint. When Prometheus is also enabled on the host, a scrape config for Pullix is automatically added.
+- **Description:** Endpoint for OpenTelemetry HTTP exporter.
 
 ### `services.pullix.privateKey`
 

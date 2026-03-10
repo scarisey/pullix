@@ -30,7 +30,7 @@ pub struct Config {
     #[serde(default = "linux_hostname")]
     pub hostname: String,
     #[serde(default = "no_prometheus_endpoint")]
-    pub prometheus_exporter_endpoint: Option<String>,
+    pub otel_http_endpoint: Option<String>,
     #[serde(default = "no_private_key")]
     pub private_key: Option<PrivateKey>,
 }
@@ -119,7 +119,7 @@ pub mod tests {
             poll_interval_secs: default_poll_interval(),
             app_dir: app_dir.to_string(),
             hostname: "foo".to_string(),
-            prometheus_exporter_endpoint: no_prometheus_endpoint(),
+            otel_http_endpoint: no_prometheus_endpoint(),
             private_key: None,
         }
     }
