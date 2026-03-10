@@ -1,6 +1,6 @@
 use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
+use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider};
 
 use crate::{config::Config, deploy::Deployed};
 
@@ -39,21 +39,21 @@ impl LastCommitMetric {
 }
 
 pub fn setup_otel(config: &Config) -> Option<SdkMeterProvider> {
-    config
-        .prometheus_exporter_endpoint
-        .as_ref()
-        .and_then(|endpoint| {
-            // Initialize OTLP exporter using HTTP binary protocol
-            let exporter = opentelemetry_otlp::MetricExporter::builder()
-                .with_http()
-                .with_endpoint(endpoint)
-                .build()
-                .ok()?;
-            // Create a meter provider with the OTLP Metric exporter
-            let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-                .with_periodic_exporter(exporter)
-                .build();
-            global::set_meter_provider(meter_provider.clone());
-            Some(meter_provider)
-        })
+    config.otel_http_endpoint.as_ref().and_then(|endpoint| {
+        // Initialize OTLP exporter using HTTP binary protocol
+        let exporter = opentelemetry_otlp::MetricExporter::builder()
+            .with_http()
+            .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+            .with_endpoint(endpoint)
+            .with_temporality(opentelemetry_sdk::metrics::Temporality::Delta)
+            .build()
+            .ok()?;
+        // Create a meter provider with the OTLP Metric exporter
+        let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+            .with_periodic_exporter(exporter)
+            .with_resource(Resource::builder().with_service_name("pullix").build())
+            .build();
+        global::set_meter_provider(meter_provider.clone());
+        Some(meter_provider)
+    })
 }

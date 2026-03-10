@@ -9,7 +9,7 @@ use crate::{
     nix_commands::NixCommands,
 };
 use anyhow::{Context, Result};
-use opentelemetry::global;
+use opentelemetry::{global, metrics::MeterProvider};
 use tokio::time::sleep;
 use tracing::{Level, debug, span};
 
@@ -42,6 +42,10 @@ async fn run_pullix(
             .with_context(|| format!("Failed to load deployments in {}", config.state_path()))?;
 
         debug!("Deployments loaded");
+        if let Some(deployed) = deployments.last_deployment() {
+            debug!("Last deployment was: {:?}", deployed);
+            last_commit_metric.set(deployed)
+        }
         let current_commits = git.sync_and_get_commits(config).await?;
         debug!("Commits loaded {:?}", current_commits);
 
@@ -74,10 +78,12 @@ async fn main() -> Result<()> {
     let git = Git::new();
 
     let meter_provider = setup_otel(&config);
+    let meter = meter_provider
+        .as_ref()
+        .map(|meter_provider| meter_provider.meter("pullix"))
+        .unwrap_or(global::meter("pullix"));
 
-    let meter = global::meter("pullix");
     let last_commit_metric = LastCommitMetric::new(&meter);
-
     run_pullix(
         &config,
         &git,
