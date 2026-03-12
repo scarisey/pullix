@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::{
     config::Config,
     git::Git,
-    metrics::{LastCommitMetric, setup_otel},
+    metrics::{LastCommitMetric, RemoteState, setup_otel},
     nix_commands::NixCommands,
 };
 use anyhow::{Context, Result};
@@ -26,6 +26,7 @@ async fn run_pullix(
     nix_commands_for_test: &impl NixCommands,
     nix_commands_for_prod: &impl NixCommands,
     last_commit_metric: LastCommitMetric,
+    remote_state: RemoteState,
 ) -> Result<()> {
     let mut elapsed_secs = 0;
     loop {
@@ -48,6 +49,15 @@ async fn run_pullix(
         }
         let current_commits = git.sync_and_get_commits(config).await?;
         debug!("Commits loaded {:?}", current_commits);
+        let last_commit_on_main = git.last_commit_on_main().await;
+        if let Some(commit) = last_commit_on_main {
+            debug!("Last commit on main: {:?}", commit);
+            remote_state.set(
+                &commit,
+                current_commits.get_prod(),
+                current_commits.get_test(),
+            );
+        }
 
         let mut next_action = deployments.should_deploy(current_commits);
         debug!("Next action: {:?}", next_action);
@@ -84,12 +94,14 @@ async fn main() -> Result<()> {
         .unwrap_or(global::meter("pullix"));
 
     let last_commit_metric = LastCommitMetric::new(&meter);
+    let remote_state = RemoteState::new(&meter);
     run_pullix(
         &config,
         &git,
         nix_commands_for_test,
         nix_commands_for_prod,
         last_commit_metric,
+        remote_state,
     )
     .await
     .inspect_err(|e| eprint!("{e}"))?;
@@ -345,6 +357,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteState::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -360,6 +373,7 @@ mod tests {
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
                         last_commit_metric,
+                        remote_state,
                     )
                     .await
                     .unwrap()
@@ -408,6 +422,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteState::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -423,6 +438,7 @@ mod tests {
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
                         last_commit_metric,
+                        remote_state,
                     )
                     .await
                     .unwrap()
@@ -474,6 +490,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteState::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -489,6 +506,7 @@ mod tests {
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
                         last_commit_metric,
+                        remote_state,
                     )
                     .await
                     .unwrap()
@@ -546,6 +564,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteState::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -561,6 +580,7 @@ mod tests {
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
                         last_commit_metric,
+                        remote_state,
                     )
                     .await
                     .unwrap()
@@ -631,6 +651,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteState::new(&meter);
 
         // Test channel uses the togglable mock (starts as FAIL)
         let nix_test = Arc::new(NixTestTogglable::new(false));
@@ -648,6 +669,7 @@ mod tests {
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
                         last_commit_metric,
+                        remote_state,
                     )
                     .await
                     .unwrap()
@@ -731,6 +753,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteState::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -746,6 +769,7 @@ mod tests {
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
                         last_commit_metric,
+                        remote_state,
                     )
                     .await
                     .unwrap()
@@ -803,6 +827,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteState::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -818,6 +843,7 @@ mod tests {
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
                         last_commit_metric,
+                        remote_state,
                     )
                     .await
                     .unwrap()

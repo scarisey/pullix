@@ -2,7 +2,35 @@ use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider};
 
-use crate::{config::Config, deploy::Deployed};
+use crate::{config::Config, deploy::Deployed, git::Commit};
+
+pub struct RemoteState(opentelemetry::metrics::Gauge<i64>);
+impl RemoteState {
+    pub fn new(meter: &opentelemetry::metrics::Meter) -> Self {
+        let gauge = meter
+            .i64_gauge("pullix_remote_state")
+            .with_description("Get the remote state of the git repository.")
+            .build();
+        RemoteState(gauge)
+    }
+    pub fn set(
+        &self,
+        main_commit: &Commit,
+        prod_commit: Option<&Commit>,
+        test_commit: Option<&Commit>,
+    ) {
+        let labels = vec![
+            KeyValue::new("main_commit", main_commit.to_string()),
+            prod_commit
+                .map(|c| KeyValue::new("prod_commit", c.to_string()))
+                .unwrap_or(KeyValue::new("prod_commit", "unknown")),
+            test_commit
+                .map(|c| KeyValue::new("test_commit", c.to_string()))
+                .unwrap_or(KeyValue::new("prod_commit", "unknown")),
+        ];
+        self.0.record(1, &labels);
+    }
+}
 
 pub struct LastCommitMetric(opentelemetry::metrics::Gauge<i64>);
 

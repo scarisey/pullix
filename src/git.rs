@@ -55,6 +55,20 @@ impl LatestCommits {
             distance,
         }
     }
+    pub fn get_test(&self) -> Option<&Commit> {
+        match self {
+            LatestCommits::Test(commit) => Some(commit),
+            LatestCommits::Prod(_) => None,
+            LatestCommits::Distance { test, .. } => Some(test),
+        }
+    }
+    pub fn get_prod(&self) -> Option<&Commit> {
+        match self {
+            LatestCommits::Test(_) => None,
+            LatestCommits::Prod(commit) => Some(commit),
+            LatestCommits::Distance { prod, .. } => Some(prod),
+        }
+    }
 }
 
 pub struct Git {
@@ -72,6 +86,24 @@ impl Git {
             dir: temp_dir,
             repository: OnceCell::new(),
         }
+    }
+
+    pub async fn last_commit_on_main(&self) -> Option<Commit> {
+        let repo = self.get_repo().ok()?;
+
+        // Try to find the "main" branch first
+        if let Ok(reference) = repo.find_reference("refs/heads/main") {
+            let commit = reference.peel_to_commit().ok()?;
+            return Some(Commit(commit.id().to_string()));
+        }
+
+        // Fall back to the "master" branch if "main" is not found
+        if let Ok(reference) = repo.find_reference("refs/heads/master") {
+            let commit = reference.peel_to_commit().ok()?;
+            return Some(Commit(commit.id().to_string()));
+        }
+
+        None
     }
 
     pub async fn sync_and_get_commits(&self, config: &Config) -> Result<LatestCommits> {
