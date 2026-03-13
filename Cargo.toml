@@ -20,6 +20,7 @@ opentelemetry-otlp = "0.31.0"
 opentelemetry_sdk = "0.31.0"
 dataclasses = "0.1.0"
 derive_more = {version="2.1.1",features=["full"]}
+thiserror = "2.0.18"
 
 [dev-dependencies]
 tokio = { version = "1.42", features = ["full","test-util"] }
