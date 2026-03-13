@@ -123,6 +123,7 @@ mod tests {
 
     use crate::config::{ConfigFlake, UrlSpecConfig};
     use crate::flake::{FlakeRef, FlakeType};
+    use crate::nix_commands::NixCommandError;
 
     use super::*;
     use crate::config::tests::make_config;
@@ -270,14 +271,24 @@ mod tests {
         }
     }
     impl NixCommands for NixTestTogglable {
-        async fn deploy(&self, flake_ref: &FlakeRef, _hostname: &str) -> Result<()> {
+        async fn deploy(
+            &self,
+            flake_ref: &FlakeRef,
+            _hostname: &str,
+        ) -> Result<(), NixCommandError> {
             if self.should_succeed.get() {
                 debug!("Togglable deploy OK for {}", flake_ref.repo);
-                let _ = self.tx.send(flake_ref.clone()).await?;
+                let _ = self
+                    .tx
+                    .send(flake_ref.clone())
+                    .await
+                    .map_err(NixCommandError::to_execution)?;
                 Ok(())
             } else {
                 debug!("Togglable deploy FAIL for {}", flake_ref.repo);
-                Err(anyhow!("Simulated deployment failure"))
+                Err(NixCommandError::Execution {
+                    message: "Simulated deployment failure".into(),
+                })
             }
         }
     }

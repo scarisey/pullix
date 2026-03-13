@@ -173,6 +173,7 @@ impl ShouldDeploy {
             error!("Error when launching nix command: {}", &err);
             deployments.set_last_failed();
             deployments.save_to_path(&config.state_path()).await?;
+            err.report_error(config).await?;
             Ok(deployments.last_deployment())
         } else {
             deployments.save_to_path(&config.state_path()).await?;
@@ -228,19 +229,29 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::config::tests::make_config;
+    use crate::{config::tests::make_config, nix_commands::NixCommandError};
 
     struct NixTestOk;
     impl NixCommands for NixTestOk {
-        async fn deploy(&self, _flake_ref: &FlakeRef, _hostname: &str) -> Result<()> {
+        async fn deploy(
+            &self,
+            _flake_ref: &FlakeRef,
+            _hostname: &str,
+        ) -> Result<(), NixCommandError> {
             Ok(())
         }
     }
 
     struct NixTestKo;
     impl NixCommands for NixTestKo {
-        async fn deploy(&self, _flake_ref: &FlakeRef, _hostname: &str) -> Result<()> {
-            Err(anyhow!("Example error"))
+        async fn deploy(
+            &self,
+            _flake_ref: &FlakeRef,
+            _hostname: &str,
+        ) -> Result<(), NixCommandError> {
+            Err(NixCommandError::Execution {
+                message: "Example error".into(),
+            })
         }
     }
 
@@ -561,7 +572,10 @@ mod tests {
         let mut should_deploy = deployments.should_deploy(current);
         let last_deployed = should_deploy.run(&config, &NixTestOk, &NixTestKo).await;
 
-        assert!(matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))));
+        assert!(
+            matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))),
+            "last_deployed is {last_deployed:?}"
+        );
 
         let state = tokio::fs::read_to_string(config.state_path())
             .await
@@ -573,6 +587,59 @@ mod tests {
                 Some(Deployed::ProdFailed(_))
             ),
             "Last deployment persisted is `{state}`"
+        );
+    }
+    #[tokio::test]
+    async fn test_run_deploy_to_test_report_error_when_nix_command_is_ko() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let temp_dir = &TempDir::with_prefix("test_pullix").unwrap();
+        let config = &make_config(temp_dir.path().to_str().unwrap());
+        let deployments = Deployments {
+            history: vec![
+                Deployed::Init,
+                Deployed::TestAligned(Commit::from("test123")),
+            ],
+        };
+        let current = make_latest_commits_prod_last("test123", "prod456");
+        let mut should_deploy = deployments.should_deploy(current);
+
+        // Run the first failed deployment
+        let last_deployed = should_deploy.run(&config, &NixTestKo, &NixTestKo).await;
+        assert!(
+            matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))),
+            "last_deployed is {last_deployed:?}"
+        );
+
+        // Run the second failed deployment to trigger the creation of a timestamped report
+        let last_deployed = should_deploy.run(&config, &NixTestKo, &NixTestKo).await;
+        assert!(
+            matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))),
+            "last_deployed is {last_deployed:?}"
+        );
+
+        // Assert that last_report.json exists
+        let last_report_path = format!("{}/last_report.json", config.app_dir);
+        assert!(
+            tokio::fs::try_exists(&last_report_path).await.unwrap(),
+            "last_report.json should exist after a failed deployment"
+        );
+
+        // Assert that a timestamped report file exists
+        let mut has_timestamped_report = false;
+        let mut read_dir = tokio::fs::read_dir(&config.app_dir).await.unwrap();
+        while let Some(entry) = read_dir.next_entry().await.unwrap() {
+            let file_name = entry.file_name();
+            let file_name_str = file_name.to_string_lossy();
+            if file_name_str.starts_with(char::is_numeric)
+                && file_name_str.ends_with("_report.json")
+            {
+                has_timestamped_report = true;
+                break;
+            }
+        }
+        assert!(
+            has_timestamped_report,
+            "a timestamped error report should exist after a failed deployment"
         );
     }
 
