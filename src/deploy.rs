@@ -63,7 +63,8 @@ impl Deployments {
         };
         Ok(deployments)
     }
-    pub async fn save_to_path(&self, path: &str) -> anyhow::Result<()> {
+    pub async fn save_to_path(&mut self, path: &str, keep_last: usize) -> anyhow::Result<()> {
+        self.trim_history(keep_last);
         let data = serde_json::to_string_pretty(self)?;
         tokio::fs::write(path, data).await?;
         Ok(())
@@ -147,6 +148,12 @@ impl Deployments {
         let idx = self.history.len() - 1;
         self.history[idx] = self.history[idx].failed();
     }
+
+    fn trim_history(&mut self, keep_last: usize) {
+        if self.history.len() > keep_last {
+            self.history.drain(0..self.history.len() - keep_last);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -172,11 +179,15 @@ impl ShouldDeploy {
         if let Err(err) = nix_commands.deploy(flake_ref, &config.hostname).await {
             error!("Error when launching nix command: {}", &err);
             deployments.set_last_failed();
-            deployments.save_to_path(&config.state_path()).await?;
+            deployments
+                .save_to_path(&config.state_path(), config.keep_last)
+                .await?;
             err.report_error(config).await?;
             Ok(deployments.last_deployment())
         } else {
-            deployments.save_to_path(&config.state_path()).await?;
+            deployments
+                .save_to_path(&config.state_path(), config.keep_last)
+                .await?;
             let last_deployed = deployments.last_deployment();
             Ok(last_deployed)
         }
