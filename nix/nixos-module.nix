@@ -113,6 +113,7 @@ let
       hostname = cfg.hostname;
       otel_http_endpoint = cfg.otelHttpEndpoint;
       private_key = cfg.privateKey;
+      keep_last = cfg.keepLast;
     }
   );
 in
@@ -191,6 +192,12 @@ in
       type = types.bool;
       default = false;
       description = "Logs become very verbose";
+    };
+
+    keepLast = mkOption {
+      type = types.int;
+      default = 100;
+      description = "Number of deployments to keep in history (internal state)";
     };
   };
 

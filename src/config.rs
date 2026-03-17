@@ -33,6 +33,7 @@ pub struct Config {
     pub otel_http_endpoint: Option<String>,
     #[serde(default = "no_private_key")]
     pub private_key: Option<PrivateKey>,
+    pub keep_last: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -121,6 +122,7 @@ pub mod tests {
             hostname: "foo".to_string(),
             otel_http_endpoint: no_prometheus_endpoint(),
             private_key: None,
+            keep_last: 100,
         }
     }
 }
