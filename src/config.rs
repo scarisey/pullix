@@ -34,6 +34,9 @@ pub struct Config {
     #[serde(default = "no_private_key")]
     pub private_key: Option<PrivateKey>,
     pub keep_last: usize,
+    #[serde(default = "no_home_manager_switch")]
+    pub home_manager_switch: bool,
+    pub home_manager_command: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -83,6 +86,10 @@ fn linux_hostname() -> String {
         .to_string()
 }
 
+fn no_home_manager_switch() -> bool {
+    false
+}
+
 impl Config {
     pub fn load_from_path(path: &str) -> Result<Self> {
         let contents = &fs::read_to_string(path)
@@ -98,8 +105,11 @@ impl Config {
         Ok(config)
     }
 
-    pub fn state_path(&self) -> String {
-        format!("{}/state.json", self.app_dir)
+    pub fn nixos_state_path(&self) -> String {
+        format!("{}/nixos_deployments.json", self.app_dir)
+    }
+    pub fn home_manager_state_path(&self) -> String {
+        format!("{}/home_manager_deployments.json", self.app_dir)
     }
 }
 
@@ -123,6 +133,8 @@ pub mod tests {
             otel_http_endpoint: no_prometheus_endpoint(),
             private_key: None,
             keep_last: 100,
+            home_manager_switch: false,
+            home_manager_command: "home-manager".to_string(),
         }
     }
 }

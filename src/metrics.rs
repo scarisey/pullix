@@ -4,14 +4,14 @@ use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider};
 
 use crate::{config::Config, deploy::Deployed, git::Commit};
 
-pub struct RemoteState(opentelemetry::metrics::Gauge<i64>);
-impl RemoteState {
+pub struct RemoteStateMetric(opentelemetry::metrics::Gauge<i64>);
+impl RemoteStateMetric {
     pub fn new(meter: &opentelemetry::metrics::Meter) -> Self {
         let gauge = meter
             .i64_gauge("pullix_remote_state")
             .with_description("Get the remote state of the git repository.")
             .build();
-        RemoteState(gauge)
+        RemoteStateMetric(gauge)
     }
     pub fn set(
         &self,
