@@ -69,13 +69,13 @@ impl Deployments {
         tokio::fs::write(path, data).await?;
         Ok(())
     }
-    pub fn should_deploy(&self, current_commits: LatestCommits) -> ShouldDeploy {
+    pub fn should_deploy(&self, current_commits: &LatestCommits) -> ShouldDeploy {
         match current_commits {
             LatestCommits::Test(commit) => {
                 if !self.contains_commit_test(&commit) {
                     ShouldDeploy::ToTest {
                         deployments: self.add_test_deployment(&commit),
-                        commit,
+                        commit: commit.clone(),
                     }
                 } else {
                     ShouldDeploy::Nothing
@@ -85,7 +85,7 @@ impl Deployments {
                 if !self.contains_commit_prod(&commit) {
                     ShouldDeploy::ToProd {
                         deployments: self.add_prod_deployment(&commit),
-                        commit,
+                        commit: commit.clone(),
                     }
                 } else {
                     ShouldDeploy::Nothing
@@ -96,15 +96,15 @@ impl Deployments {
                 prod,
                 distance,
             } => {
-                if distance <= 0 && !self.contains_commit_prod(&prod) {
+                if *distance <= 0 && !self.contains_commit_prod(&prod) {
                     ShouldDeploy::ToProd {
                         deployments: self.add_prod_deployment(&prod),
-                        commit: prod,
+                        commit: prod.clone(),
                     }
-                } else if distance > 0 && !self.contains_commit_test(&test) {
+                } else if *distance > 0 && !self.contains_commit_test(&test) {
                     ShouldDeploy::ToTest {
                         deployments: self.add_test_deployment(&test),
-                        commit: test,
+                        commit: test.clone(),
                     }
                 } else {
                     ShouldDeploy::Nothing
@@ -180,13 +180,13 @@ impl ShouldDeploy {
             error!("Error when launching nix command: {}", &err);
             deployments.set_last_failed();
             deployments
-                .save_to_path(&config.state_path(), config.keep_last)
+                .save_to_path(&config.nixos_state_path(), config.keep_last)
                 .await?;
             err.report_error(config).await?;
             Ok(deployments.last_deployment())
         } else {
             deployments
-                .save_to_path(&config.state_path(), config.keep_last)
+                .save_to_path(&config.nixos_state_path(), config.keep_last)
                 .await?;
             let last_deployed = deployments.last_deployment();
             Ok(last_deployed)
@@ -236,7 +236,6 @@ impl ShouldDeploy {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
     use tempfile::TempDir;
 
     use super::*;
@@ -279,7 +278,7 @@ mod tests {
         let deployments = Deployments { history: vec![] };
         let current = make_latest_commits_prod_last("test123", "prod123");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToProd {
                 deployments: deps,
                 commit,
@@ -306,7 +305,7 @@ mod tests {
         };
         let current = make_latest_commits_prod_last("test456", "prod456");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToProd {
                 deployments: deps,
                 commit,
@@ -337,7 +336,7 @@ mod tests {
         };
         let current = make_latest_commits_test_last("test999", "prod789");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToTest {
                 deployments: deps,
                 commit,
@@ -367,7 +366,7 @@ mod tests {
         };
         let current = make_latest_commits_test_last("test222", "prod333");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToTest {
                 deployments: deps,
                 commit,
@@ -398,7 +397,7 @@ mod tests {
         };
         let current = make_latest_commits_test_last("test300", "prod300");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToTest {
                 deployments: deps,
                 commit,
@@ -430,7 +429,7 @@ mod tests {
         };
         let current = make_latest_commits_test_last("test200", "prod100");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::Nothing => {}
             _ => panic!("Expected Nothing to deploy"),
         }
@@ -448,7 +447,7 @@ mod tests {
         };
         let current = make_latest_commits_test_last("test300", "prod100");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToTest {
                 deployments,
                 commit,
@@ -471,7 +470,7 @@ mod tests {
         };
 
         let commits1 = make_latest_commits_prod_last("test1", "prod1");
-        deployments = match deployments.should_deploy(commits1) {
+        deployments = match deployments.should_deploy(&commits1) {
             ShouldDeploy::ToProd {
                 deployments: deps, ..
             } => deps,
@@ -480,7 +479,7 @@ mod tests {
         assert_eq!(deployments.history.len(), 2);
 
         let commits2 = make_latest_commits_test_last("test2", "prod2");
-        deployments = match deployments.should_deploy(commits2) {
+        deployments = match deployments.should_deploy(&commits2) {
             ShouldDeploy::ToTest {
                 deployments: deps, ..
             } => deps,
@@ -506,7 +505,7 @@ mod tests {
         };
         let current = make_latest_commits_prod_last("test123", "prod123");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::Nothing => {
                 // Expected behavior
             }
@@ -525,7 +524,7 @@ mod tests {
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToProd {
                 deployments: deps,
                 commit,
@@ -552,12 +551,12 @@ mod tests {
             ],
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
-        let mut should_deploy = deployments.should_deploy(current);
+        let mut should_deploy = deployments.should_deploy(&current);
         let last_deployed = should_deploy.run(&config, &NixTestOk, &NixTestOk).await;
 
         assert!(matches!(last_deployed, Ok(Some(Deployed::ProdAligned(_)))));
 
-        let state = tokio::fs::read_to_string(config.state_path())
+        let state = tokio::fs::read_to_string(config.nixos_state_path())
             .await
             .unwrap();
         let state_deployments: Deployments = serde_json::from_str(&state).unwrap();
@@ -580,7 +579,7 @@ mod tests {
             ],
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
-        let mut should_deploy = deployments.should_deploy(current);
+        let mut should_deploy = deployments.should_deploy(&current);
         let last_deployed = should_deploy.run(&config, &NixTestOk, &NixTestKo).await;
 
         assert!(
@@ -588,7 +587,7 @@ mod tests {
             "last_deployed is {last_deployed:?}"
         );
 
-        let state = tokio::fs::read_to_string(config.state_path())
+        let state = tokio::fs::read_to_string(config.nixos_state_path())
             .await
             .unwrap();
         let state_deployments: Deployments = serde_json::from_str(&state).unwrap();
@@ -612,7 +611,7 @@ mod tests {
             ],
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
-        let mut should_deploy = deployments.should_deploy(current);
+        let mut should_deploy = deployments.should_deploy(&current);
 
         // Run the first failed deployment
         let last_deployed = should_deploy.run(&config, &NixTestKo, &NixTestKo).await;
@@ -667,12 +666,12 @@ mod tests {
             ],
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
-        let mut should_deploy = deployments.should_deploy(current);
+        let mut should_deploy = deployments.should_deploy(&current);
         let last_deployed = should_deploy.run(&config, &NixTestOk, &NixTestKo).await;
 
         assert!(matches!(last_deployed, Ok(None)));
 
-        let state_exists = tokio::fs::try_exists(config.state_path()).await;
+        let state_exists = tokio::fs::try_exists(config.nixos_state_path()).await;
 
         assert!(matches!(state_exists, Ok(false)));
     }
@@ -688,7 +687,7 @@ mod tests {
         };
         let current = LatestCommits::new(Commit::from("test123"), Commit::from("test123"), 0);
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::ToProd {
                 deployments: deps,
                 commit,
@@ -717,7 +716,7 @@ mod tests {
         };
         let current = LatestCommits::new(Commit::from("prod123"), Commit::from("prod123"), 0);
 
-        match deployments.should_deploy(current) {
+        match deployments.should_deploy(&current) {
             ShouldDeploy::Nothing => {}
             debug_data => panic!(
                 "Expected Nothing since prod commit deployed and test is rebased. Actual is {:?}",
