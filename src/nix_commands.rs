@@ -23,6 +23,15 @@ pub enum NixCommandError {
         stderr: String,
         stdout: String,
     },
+    #[error(
+        "Home manager command failed: {command} on {hostname}\nstdout: {stdout}\nstderr: {stderr}"
+    )]
+    HomeManagerCommand {
+        command: String,
+        hostname: String,
+        stderr: String,
+        stdout: String,
+    },
 }
 impl NixCommandError {
     pub fn to_execution(error: impl Into<Box<dyn std::error::Error>> + Display) -> Self {
@@ -56,6 +65,63 @@ impl NixCommandError {
 pub trait NixCommands {
     async fn deploy(&self, flake_ref: &FlakeRef, hostname: &str) -> Result<(), NixCommandError>;
 }
+
+pub struct Prod;
+impl NixCommands for Prod {
+    async fn deploy(&self, flake_ref: &FlakeRef, hostname: &str) -> Result<(), NixCommandError> {
+        nix_commands::deploy(flake_ref, hostname, &["switch"]).await
+    }
+}
+pub struct Test;
+impl NixCommands for Test {
+    async fn deploy(&self, flake_ref: &FlakeRef, hostname: &str) -> Result<(), NixCommandError> {
+        nix_commands::deploy(flake_ref, hostname, &["test"]).await
+    }
+}
+
+pub struct HomeManagerSwitch {
+    command: String,
+}
+impl HomeManagerSwitch {
+    pub fn new(command: String) -> Self {
+        Self { command }
+    }
+}
+impl NixCommands for HomeManagerSwitch {
+    async fn deploy(&self, flake_ref: &FlakeRef, hostname: &str) -> Result<(), NixCommandError> {
+        nix_commands::home_manager_switch(flake_ref, hostname, &self.command).await
+    }
+}
+
+async fn home_manager_switch(
+    flake_ref: &FlakeRef,
+    hostname: &str,
+    command: &str,
+) -> Result<(), NixCommandError> {
+    let flake_url = flake_ref
+        .to_flake_url()
+        .map_err(NixCommandError::to_execution)?;
+    debug!("Starting {} from {}", command, flake_url);
+
+    let build_output = &Command::new(command)
+        .args([&format!("{}#{}", &flake_url, hostname)])
+        .output()
+        .await
+        .map_err(NixCommandError::to_execution)?;
+
+    if !build_output.status.success() {
+        let stderr = String::from_utf8_lossy(&build_output.stderr);
+        let stdout = String::from_utf8_lossy(&build_output.stdout);
+        return Err(NixCommandError::HomeManagerCommand {
+            command: command.into(),
+            hostname: hostname.into(),
+            stderr: stderr.into(),
+            stdout: stdout.into(),
+        });
+    }
+    Ok(())
+}
+
 async fn deploy(
     flake_ref: &FlakeRef,
     hostname: &str,
@@ -121,17 +187,4 @@ async fn deploy(
 
     debug!("Deployment completed successfully");
     Ok(())
-}
-
-pub struct Prod;
-impl NixCommands for Prod {
-    async fn deploy(&self, flake_ref: &FlakeRef, hostname: &str) -> Result<(), NixCommandError> {
-        nix_commands::deploy(flake_ref, hostname, &["switch"]).await
-    }
-}
-pub struct Test;
-impl NixCommands for Test {
-    async fn deploy(&self, flake_ref: &FlakeRef, hostname: &str) -> Result<(), NixCommandError> {
-        nix_commands::deploy(flake_ref, hostname, &["test"]).await
-    }
 }

@@ -180,13 +180,13 @@ impl ShouldDeploy {
             error!("Error when launching nix command: {}", &err);
             deployments.set_last_failed();
             deployments
-                .save_to_path(&config.state_path(), config.keep_last)
+                .save_to_path(&config.nixos_state_path(), config.keep_last)
                 .await?;
             err.report_error(config).await?;
             Ok(deployments.last_deployment())
         } else {
             deployments
-                .save_to_path(&config.state_path(), config.keep_last)
+                .save_to_path(&config.nixos_state_path(), config.keep_last)
                 .await?;
             let last_deployed = deployments.last_deployment();
             Ok(last_deployed)
@@ -236,7 +236,6 @@ impl ShouldDeploy {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
     use tempfile::TempDir;
 
     use super::*;
@@ -557,7 +556,7 @@ mod tests {
 
         assert!(matches!(last_deployed, Ok(Some(Deployed::ProdAligned(_)))));
 
-        let state = tokio::fs::read_to_string(config.state_path())
+        let state = tokio::fs::read_to_string(config.nixos_state_path())
             .await
             .unwrap();
         let state_deployments: Deployments = serde_json::from_str(&state).unwrap();
@@ -588,7 +587,7 @@ mod tests {
             "last_deployed is {last_deployed:?}"
         );
 
-        let state = tokio::fs::read_to_string(config.state_path())
+        let state = tokio::fs::read_to_string(config.nixos_state_path())
             .await
             .unwrap();
         let state_deployments: Deployments = serde_json::from_str(&state).unwrap();
@@ -672,7 +671,7 @@ mod tests {
 
         assert!(matches!(last_deployed, Ok(None)));
 
-        let state_exists = tokio::fs::try_exists(config.state_path()).await;
+        let state_exists = tokio::fs::try_exists(config.nixos_state_path()).await;
 
         assert!(matches!(state_exists, Ok(false)));
     }

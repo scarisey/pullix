@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::{
     config::Config,
     git::Git,
-    metrics::{LastCommitMetric, RemoteState, setup_otel},
+    metrics::{LastCommitMetric, RemoteStateMetric, setup_otel},
     nix_commands::NixCommands,
 };
 use anyhow::{Context, Result};
@@ -25,8 +25,9 @@ async fn run_pullix(
     git: &Git,
     nix_commands_for_test: &impl NixCommands,
     nix_commands_for_prod: &impl NixCommands,
+    nix_commands_for_home_manager: &impl NixCommands,
     last_commit_metric: LastCommitMetric,
-    remote_state: RemoteState,
+    remote_state: RemoteStateMetric,
 ) -> Result<()> {
     let mut elapsed_secs = 0;
     loop {
@@ -38,13 +39,18 @@ async fn run_pullix(
         let start_time = std::time::Instant::now();
         debug!("Imposed delay");
 
-        let deployments = deploy::Deployments::load_from_path(&config.state_path())
+        let nixos_deployments = deploy::Deployments::load_from_path(&config.nixos_state_path())
             .await
-            .with_context(|| format!("Failed to load deployments in {}", config.state_path()))?;
+            .with_context(|| {
+                format!(
+                    "Failed to load NixOS deployments in {}",
+                    config.nixos_state_path()
+                )
+            })?;
 
-        debug!("Deployments loaded");
-        if let Some(deployed) = deployments.last_deployment() {
-            debug!("Last deployment was: {:?}", deployed);
+        debug!("NixOS Deployments loaded");
+        if let Some(deployed) = nixos_deployments.last_deployment() {
+            debug!("Last NixOS deployment was: {:?}", deployed);
             last_commit_metric.set(deployed)
         }
         let current_commits = git.sync_and_get_commits(config).await?;
@@ -59,7 +65,7 @@ async fn run_pullix(
             );
         }
 
-        let mut next_action = deployments.should_deploy(current_commits);
+        let mut next_action = nixos_deployments.should_deploy(current_commits);
         debug!("Next action: {:?}", next_action);
         let _ = next_action
             .run(config, nix_commands_for_test, nix_commands_for_prod)
@@ -85,6 +91,8 @@ async fn main() -> Result<()> {
         .with_context(|| format!("Failed to load config from {}", config_path))?;
     let nix_commands_for_test = &nix_commands::Test;
     let nix_commands_for_prod = &nix_commands::Prod;
+    let nix_commands_for_hm =
+        &nix_commands::HomeManagerSwitch::new((&config).home_manager_command.clone());
     let git = Git::new();
 
     let meter_provider = setup_otel(&config);
@@ -94,12 +102,13 @@ async fn main() -> Result<()> {
         .unwrap_or(global::meter("pullix"));
 
     let last_commit_metric = LastCommitMetric::new(&meter);
-    let remote_state = RemoteState::new(&meter);
+    let remote_state = RemoteStateMetric::new(&meter);
     run_pullix(
         &config,
         &git,
         nix_commands_for_test,
         nix_commands_for_prod,
+        nix_commands_for_hm,
         last_commit_metric,
         remote_state,
     )
@@ -116,7 +125,6 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
     use git2::Repository;
     use tempfile::TempDir;
     use tokio::sync::mpsc::{Receiver, Sender};
@@ -368,7 +376,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteState::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -433,7 +441,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteState::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -501,7 +509,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteState::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -575,7 +583,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteState::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -662,7 +670,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteState::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
 
         // Test channel uses the togglable mock (starts as FAIL)
         let nix_test = Arc::new(NixTestTogglable::new(false));
@@ -764,7 +772,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteState::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -838,7 +846,7 @@ mod tests {
         let git = Git::new();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteState::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
