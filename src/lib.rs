@@ -109,6 +109,7 @@ pub async fn run_pullix(
         let _ = handle_deployments(&current_commits, &nixos_deployments, DeployType::NixOS).await?;
         let _ =
             handle_deployments(&current_commits, &hm_deployments, DeployType::HomeManager).await?;
+
         elapsed_secs = start_time.elapsed().as_secs();
     }
 }
@@ -396,6 +397,7 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_hm, "prod").await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -404,6 +406,7 @@ mod tests {
                 // Second tick → Distance(test=C2, prod=C1, d=1) → deploy test
                 advance_one_tick().await;
                 expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_hm, "test").await;
 
                 pullix_running.abort();
             })
@@ -464,6 +467,7 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_hm, "test").await;
 
                 // Add C2 tagged "prod" (ahead of test on main)
                 let c2 = repo.add_commit().unwrap();
@@ -472,6 +476,7 @@ mod tests {
                 // Second tick → Distance(test=C1, prod=C2, d=-1) → deploy prod
                 advance_one_tick().await;
                 expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_hm, "prod").await;
 
                 pullix_running.abort();
             })
@@ -538,6 +543,7 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_hm, "prod").await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -546,6 +552,7 @@ mod tests {
                 // Second tick → Distance(test=C2, prod=C1, d=1) → deploy test
                 advance_one_tick().await;
                 expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_hm, "test").await;
 
                 pullix_running.abort();
             })
@@ -612,6 +619,7 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod (initial)").await;
+                expect_deployment(&nix_hm, "prod (initial)").await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -620,6 +628,7 @@ mod tests {
                 // Second tick → deploy test
                 advance_one_tick().await;
                 expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_hm, "test").await;
 
                 // Move prod tag to C3 (now ahead of test)
                 let c3 = repo.add_commit().unwrap();
@@ -629,6 +638,7 @@ mod tests {
                 // Distance(test=C2, prod=C3, d=-1) → deploy prod(C3)
                 advance_one_tick().await;
                 let deployed = expect_deployment(&nix_prod, "prod (updated)").await;
+                let _deployed_hm = expect_deployment(&nix_hm, "prod (updated)").await;
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c3.to_string()).as_deref(),
@@ -704,6 +714,7 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_hm, "prod").await;
 
                 // Add C2 tagged "test" (ahead of prod).
                 // nix_test is still set to FAIL.
@@ -718,6 +729,10 @@ mod tests {
                     nix_test.deployments.borrow_mut().try_recv().is_err(),
                     "test deployment should have failed – nothing on channel"
                 );
+                assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "home manager test deployment should have failed – nothing on channel"
+                );
 
                 // ── Tick 3 → C2 is already recorded (failed) → Nothing ──
                 advance_one_tick().await;
@@ -725,11 +740,16 @@ mod tests {
                     nix_test.deployments.borrow_mut().try_recv().is_err(),
                     "failed commit should not be retried"
                 );
+                assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "failed home manager commit should not be retried"
+                );
 
                 // Move test tag to C3 and switch mock to succeed
                 let c3 = repo.add_commit().unwrap();
                 repo.move_tag("test", c3).unwrap();
                 nix_test.set_should_succeed(true);
+                nix_hm.set_should_succeed(true);
 
                 // ── Tick 4 → test(C3) is new → deploy test(C3) → OK ──
                 advance_one_tick().await;
@@ -739,6 +759,12 @@ mod tests {
                     .recv()
                     .await
                     .expect("Expected a successful test deployment for C3");
+                let _deployed_hm = nix_hm
+                    .deployments
+                    .borrow_mut()
+                    .recv()
+                    .await
+                    .expect("Expected a successful home manager test deployment for C3");
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c3.to_string()).as_deref(),
@@ -807,6 +833,7 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_hm, "test").await;
 
                 // Add prod tag on the SAME commit C1 (prod rebased on test)
                 repo.add_tag("prod", c1).unwrap();
@@ -815,6 +842,7 @@ mod tests {
                 // distance <= 0 and prod not yet deployed → deploy prod
                 advance_one_tick().await;
                 let deployed = expect_deployment(&nix_prod, "prod (rebased on test)").await;
+                let _deployed_hm = expect_deployment(&nix_hm, "prod (rebased on test)").await;
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c1.to_string()).as_deref(),
@@ -884,6 +912,7 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_hm, "prod").await;
 
                 // Add test tag on the SAME commit C1 (test rebased on prod)
                 repo.add_tag("test", c1).unwrap();
@@ -896,8 +925,16 @@ mod tests {
                     "test should not be deployed when rebased on already-deployed prod"
                 );
                 assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "home manager test should not be deployed when rebased on already-deployed prod"
+                );
+                assert!(
                     nix_prod.deployments.borrow_mut().try_recv().is_err(),
                     "prod should not be redeployed"
+                );
+                assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "home manager prod should not be redeployed"
                 );
 
                 pullix_running.abort();
