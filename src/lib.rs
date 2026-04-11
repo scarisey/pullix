@@ -277,7 +277,7 @@ mod tests {
             _hostname: &str,
         ) -> Result<(), NixCommandError> {
             if self.should_succeed.get() {
-                debug!("Togglable deploy OK for {}", flake_ref.repo);
+                debug!("Togglable deploy OK for {:?} ({:?})", flake_ref.rev, flake_ref.ref_);
                 let _ = self
                     .tx
                     .send(flake_ref.clone())
@@ -285,7 +285,7 @@ mod tests {
                     .map_err(NixCommandError::to_execution)?;
                 Ok(())
             } else {
-                debug!("Togglable deploy FAIL for {}", flake_ref.repo);
+                debug!("Togglable deploy FAIL for {:?} ({:?})", flake_ref.rev, flake_ref.ref_);
                 Err(NixCommandError::Execution {
                     message: "Simulated deployment failure".into(),
                 })
@@ -335,7 +335,10 @@ mod tests {
             .recv()
             .await
             .unwrap_or_else(|| panic!("Expected a {} deployment but channel closed", label));
-        debug!("Received {} deployment for {}", label, deployed.repo);
+        debug!(
+            "Received on {} deployment for {:?} ({:?})",
+            label, deployed.rev, deployed.ref_
+        );
         deployed
     }
 
@@ -935,6 +938,161 @@ mod tests {
                 assert!(
                     nix_hm.deployments.borrow_mut().try_recv().is_err(),
                     "home manager prod should not be redeployed"
+                );
+
+                pullix_running.abort();
+            })
+            .await;
+    }
+
+    /// **Test 8 – Complex scenario with mixed NixOS and Home Manager deployment outcomes**
+    ///
+    /// This test covers a complex scenario where:
+    /// - prod tag on commit 0: both NixOS and Home Manager deployments succeed
+    /// - test tag on commit 1: both NixOS and Home Manager deployments fail
+    /// - test tag moved to commit 2: both fail again (different reason)
+    /// - test tag moved to commit 3: both NixOS and Home Manager succeed
+    ///
+    /// History evolution:
+    /// ```text
+    /// t=0    C0(prod)                                            [main at C0]
+    /// t=60   poll → deploy prod (both succeed)
+    /// t=60   C0(prod) → C1(test)                                 [main at C1]
+    ///        (both set to FAIL)
+    /// t=180  poll → deploy test(C1) → both FAIL
+    /// t=300  poll → C1 already in history (failed) → Nothing
+    /// t=300  Move test to C2, both still set to FAIL
+    /// t=420  poll → deploy test(C2) → both FAIL
+    /// t=540  poll → C2 already in history (failed) → Nothing
+    /// t=540  Move test to C3, both set to OK
+    /// t=660  poll → deploy test(C3) → both succeed
+    /// ```
+    #[tokio::test(start_paused = true)]
+    pub async fn test_complex_mixed_deployment_outcomes() {
+        let _ = tracing_subscriber::fmt::try_init();
+        debug!("test_complex_mixed_deployment_outcomes");
+
+        let app_dir = TempDir::new().unwrap();
+        let mut repo = TestRepo::new().unwrap();
+
+        // C0 tagged "prod"
+        let c0 = repo.add_commit().unwrap();
+        repo.add_tag("prod", c0).unwrap();
+
+        let config = make_pullix_config(repo.path(), &app_dir);
+        let git = Git::new();
+        let meter = global::meter("pullix");
+        let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
+
+        // Start with all succeeding
+        let nix_test = Arc::new(NixTestTogglable::new(true));
+        let nix_prod = Arc::new(NixTestTogglable::new(true));
+        let nix_hm = Arc::new(NixTestTogglable::new(true));
+        let ref_test = nix_test.clone();
+        let ref_prod = nix_prod.clone();
+        let ref_hm = nix_hm.clone();
+
+        let task_local = tokio::task::LocalSet::new();
+        task_local
+            .run_until(async move {
+                let pullix_running = tokio::task::spawn_local(async move {
+                    run_pullix(
+                        &config,
+                        &git,
+                        ref_test.as_ref(),
+                        ref_prod.as_ref(),
+                        ref_hm.as_ref(),
+                        last_commit_metric,
+                        remote_state,
+                    )
+                    .await
+                    .unwrap()
+                });
+
+                // ── Tick 1 → only prod tag → deploy prod (both succeed) ──
+                tokio::time::advance(Duration::from_secs(60)).await;
+                tokio::task::yield_now().await;
+                expect_deployment(&nix_prod, "nixos prod").await;
+                expect_deployment(&nix_hm, "hm prod").await;
+
+                // Add C1 tagged "test" (ahead of prod)
+                // Set both to fail for this commit
+                let c1 = repo.add_commit().unwrap();
+                repo.add_tag("test", c1).unwrap();
+                nix_test.set_should_succeed(false);
+                nix_hm.set_should_succeed(false);
+
+                // ── Tick 2 → deploy test(C1) → both FAIL ──
+                advance_one_tick().await;
+                // Both deployments should fail
+                assert!(
+                    nix_test.deployments.borrow_mut().try_recv().is_err(),
+                    "test deployment should have failed"
+                );
+                assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "home manager test deployment should have failed"
+                );
+
+                // ── Tick 3 → C1 already in history (HM failed) → Nothing ──
+                advance_one_tick().await;
+                assert!(
+                    nix_test.deployments.borrow_mut().try_recv().is_err(),
+                    "test should not be retried"
+                );
+                assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "home manager test should not be retried"
+                );
+
+                // Move test to C2, both still set to FAIL
+                let c2 = repo.add_commit().unwrap();
+                repo.move_tag("test", c2).unwrap();
+                // Both still set to fail
+
+                // ── Tick 4 → deploy test(C2) → both FAIL ──
+                advance_one_tick().await;
+                // Both deployments should fail
+                assert!(
+                    nix_test.deployments.borrow_mut().try_recv().is_err(),
+                    "nixos test deployment should have failed"
+                );
+                assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "home manager test deployment should have failed"
+                );
+
+                // ── Tick 5 → C2 already in history (NixOS failed) → Nothing ──
+                advance_one_tick().await;
+                assert!(
+                    nix_test.deployments.borrow_mut().try_recv().is_err(),
+                    "nixos test should not be retried"
+                );
+                assert!(
+                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
+                    "home manager test should not be retried"
+                );
+
+                // Move test to C3, set both to succeed
+                let c3 = repo.add_commit().unwrap();
+                repo.move_tag("test", c3).unwrap();
+                nix_test.set_should_succeed(true);
+                nix_hm.set_should_succeed(true);
+
+                // ── Tick 6 → deploy test(C3) → both succeed ──
+                advance_one_tick().await;
+                let deployed_test = expect_deployment(&nix_test, "test(C3) NixOS").await;
+                let deployed_hm = expect_deployment(&nix_hm, "test(C3) HM").await;
+                assert_eq!(
+                    deployed_test.rev.as_deref(),
+                    Some(c3.to_string()).as_deref(),
+                    "test deployment should use commit C3"
+                );
+                assert_eq!(
+                    deployed_hm.rev.as_deref(),
+                    Some(c3.to_string()).as_deref(),
+                    "home manager deployment should use commit C3"
                 );
 
                 pullix_running.abort();
