@@ -36,6 +36,11 @@ jobs:
         with:
           name: scarisey-public
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - uses: cachix/cachix-action@v16
+        with:
+          name: devenv
+      - name: Install devenv.sh
+        run: nix profile add nixpkgs#devenv
       - name: Prepare update branch
         run: |
           git remote remove origin
@@ -44,6 +49,14 @@ jobs:
       - name: Update flake inputs
         run: |
           nix flake update --commit-lock-file --accept-flake-config
+      - name: Update devenv inputs
+        run: |
+          devenv update
+      - name: Update devenv.lock
+        run: |
+          devenv update
+          git add devenv.lock
+          git diff --cached --quiet || git commit -m "chore:update devenv.lock"
       - name: Update cargo.lock
         run: |
           nix run --accept-flake-config .#packages.x86_64-linux.devenv shell -- cargo update

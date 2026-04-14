@@ -50,6 +50,7 @@
     )
     // {
       nixosModules.default = import ./nix/nixos-module.nix { inherit self; };
+      homeManagerModules.default = import ./nix/hm-module.nix { inherit self; };
     };
 
   nixConfig = {
