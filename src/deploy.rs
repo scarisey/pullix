@@ -72,9 +72,9 @@ impl Deployments {
     pub fn should_deploy(&self, current_commits: &LatestCommits) -> ShouldDeploy {
         match current_commits {
             LatestCommits::Test(commit) => {
-                if !self.contains_commit_test(&commit) {
+                if !self.contains_commit_test(commit) {
                     ShouldDeploy::ToTest {
-                        deployments: self.add_test_deployment(&commit),
+                        deployments: self.add_test_deployment(commit),
                         commit: commit.clone(),
                     }
                 } else {
@@ -82,9 +82,9 @@ impl Deployments {
                 }
             }
             LatestCommits::Prod(commit) => {
-                if !self.contains_commit_prod(&commit) {
+                if !self.contains_commit_prod(commit) {
                     ShouldDeploy::ToProd {
-                        deployments: self.add_prod_deployment(&commit),
+                        deployments: self.add_prod_deployment(commit),
                         commit: commit.clone(),
                     }
                 } else {
@@ -96,14 +96,14 @@ impl Deployments {
                 prod,
                 distance,
             } => {
-                if *distance <= 0 && !self.contains_commit_prod(&prod) {
+                if *distance <= 0 && !self.contains_commit_prod(prod) {
                     ShouldDeploy::ToProd {
-                        deployments: self.add_prod_deployment(&prod),
+                        deployments: self.add_prod_deployment(prod),
                         commit: prod.clone(),
                     }
-                } else if *distance > 0 && !self.contains_commit_test(&test) {
+                } else if *distance > 0 && !self.contains_commit_test(test) {
                     ShouldDeploy::ToTest {
-                        deployments: self.add_test_deployment(&test),
+                        deployments: self.add_test_deployment(test),
                         commit: test.clone(),
                     }
                 } else {
