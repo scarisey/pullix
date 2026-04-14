@@ -34,9 +34,7 @@ pub struct Config {
     #[serde(default = "no_private_key")]
     pub private_key: Option<PrivateKey>,
     pub keep_last: usize,
-    #[serde(default = "no_home_manager_switch")]
-    pub home_manager_switch: bool,
-    pub home_manager_command: String,
+    pub home_manager_command: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -133,8 +131,7 @@ pub mod tests {
             otel_http_endpoint: no_prometheus_endpoint(),
             private_key: None,
             keep_last: 100,
-            home_manager_switch: false,
-            home_manager_command: "home-manager".to_string(),
+            home_manager_command: None,
         }
     }
 }

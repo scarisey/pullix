@@ -76,6 +76,12 @@ pub struct Git {
     repository: OnceCell<Repository>,
 }
 
+impl Default for Git {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Git {
     pub fn new() -> Self {
         let temp_dir = TempDir::with_prefix("pullix-temp-repos")

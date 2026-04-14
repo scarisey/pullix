@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::{
     config::Config,
-    git::{Git, LatestCommits},
+    git::Git,
     metrics::{LastCommitMetric, RemoteStateMetric},
     nix_commands::NixCommands,
 };
@@ -24,47 +24,9 @@ pub async fn run_pullix(
     git: &Git,
     nix_commands_for_test: &impl NixCommands,
     nix_commands_for_prod: &impl NixCommands,
-    nix_commands_for_home_manager: &impl NixCommands,
     last_commit_metric: LastCommitMetric,
     remote_state: RemoteStateMetric,
 ) -> Result<()> {
-    #[derive(Debug, PartialEq, Eq)]
-    enum DeployType {
-        NixOS,
-        HomeManager,
-    }
-    let handle_deployments = async |current_commits: &LatestCommits,
-                                    deployments: &deploy::Deployments,
-                                    deploy_type: DeployType|
-           -> Result<()> {
-        if let Some(deployed) = deployments.last_deployment() {
-            debug!("Last {:?} deployment was: {:?}", deploy_type, deployed);
-            last_commit_metric.set(deployed)
-        }
-        let mut next_action = deployments.should_deploy(current_commits);
-        debug!("Next action for {:?}: {:?}", deploy_type, next_action);
-        let _ = match deploy_type {
-            DeployType::NixOS => {
-                next_action
-                    .run(config, nix_commands_for_test, nix_commands_for_prod)
-                    .await?
-            }
-            DeployType::HomeManager => {
-                next_action
-                    .run(
-                        config,
-                        nix_commands_for_home_manager,
-                        nix_commands_for_home_manager,
-                    )
-                    .await?
-            }
-        };
-
-        if let Some(deployed) = next_action.deployments().and_then(|x| x.last_deployment()) {
-            last_commit_metric.set(deployed);
-        };
-        Ok(())
-    };
     let mut elapsed_secs = 0;
     loop {
         let _loop = span!(Level::TRACE, "loop");
@@ -75,23 +37,25 @@ pub async fn run_pullix(
         let start_time = std::time::Instant::now();
         debug!("Imposed delay");
 
-        let nixos_deployments = deploy::Deployments::load_from_path(&config.nixos_state_path())
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to load NixOS deployments in {}",
-                    config.nixos_state_path()
-                )
-            })?;
-
-        let hm_deployments = deploy::Deployments::load_from_path(&config.home_manager_state_path())
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to load HomeManager deployments in {}",
-                    config.home_manager_state_path()
-                )
-            })?;
+        let deployments = if config.home_manager_command.is_some() {
+            deploy::Deployments::load_from_path(&config.home_manager_state_path())
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to load HomeManager deployments in {}",
+                        config.home_manager_state_path()
+                    )
+                })?
+        } else {
+            deploy::Deployments::load_from_path(&config.nixos_state_path())
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to load NixOS deployments in {}",
+                        config.nixos_state_path()
+                    )
+                })?
+        };
 
         let current_commits = git.sync_and_get_commits(config).await?;
         debug!("Commits loaded {:?}", current_commits);
@@ -105,11 +69,20 @@ pub async fn run_pullix(
             );
         }
 
-        debug!("NixOS and HomeManager Deployments loaded");
-        let _ = handle_deployments(&current_commits, &nixos_deployments, DeployType::NixOS).await?;
-        let _ =
-            handle_deployments(&current_commits, &hm_deployments, DeployType::HomeManager).await?;
+        debug!("Deployments loaded");
+        if let Some(deployed) = deployments.last_deployment() {
+            debug!("Last deployment was: {:?}", deployed);
+            last_commit_metric.set(deployed)
+        }
+        let mut next_action = deployments.should_deploy(&current_commits);
+        debug!("Next action for {:?}", next_action);
+        next_action
+            .run(config, nix_commands_for_test, nix_commands_for_prod)
+            .await?;
 
+        if let Some(deployed) = next_action.deployments().and_then(|x| x.last_deployment()) {
+            last_commit_metric.set(deployed);
+        };
         elapsed_secs = start_time.elapsed().as_secs();
     }
 }
@@ -277,7 +250,10 @@ mod tests {
             _hostname: &str,
         ) -> Result<(), NixCommandError> {
             if self.should_succeed.get() {
-                debug!("Togglable deploy OK for {:?} ({:?})", flake_ref.rev, flake_ref.ref_);
+                debug!(
+                    "Togglable deploy OK for {:?} ({:?})",
+                    flake_ref.rev, flake_ref.ref_
+                );
                 let _ = self
                     .tx
                     .send(flake_ref.clone())
@@ -285,7 +261,10 @@ mod tests {
                     .map_err(NixCommandError::to_execution)?;
                 Ok(())
             } else {
-                debug!("Togglable deploy FAIL for {:?} ({:?})", flake_ref.rev, flake_ref.ref_);
+                debug!(
+                    "Togglable deploy FAIL for {:?} ({:?})",
+                    flake_ref.rev, flake_ref.ref_
+                );
                 Err(NixCommandError::Execution {
                     message: "Simulated deployment failure".into(),
                 })
@@ -374,10 +353,8 @@ mod tests {
         let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
         let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
 
         let task_local = tokio::task::LocalSet::new();
         task_local
@@ -388,7 +365,6 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
-                        ref_hm.as_ref(),
                         last_commit_metric,
                         remote_state,
                     )
@@ -400,7 +376,6 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
-                expect_deployment(&nix_hm, "prod").await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -409,7 +384,6 @@ mod tests {
                 // Second tick → Distance(test=C2, prod=C1, d=1) → deploy test
                 advance_one_tick().await;
                 expect_deployment(&nix_test, "test").await;
-                expect_deployment(&nix_hm, "test").await;
 
                 pullix_running.abort();
             })
@@ -444,10 +418,8 @@ mod tests {
         let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
         let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
 
         let task_local = tokio::task::LocalSet::new();
         task_local
@@ -458,7 +430,6 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
-                        ref_hm.as_ref(),
                         last_commit_metric,
                         remote_state,
                     )
@@ -470,7 +441,6 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_test, "test").await;
-                expect_deployment(&nix_hm, "test").await;
 
                 // Add C2 tagged "prod" (ahead of test on main)
                 let c2 = repo.add_commit().unwrap();
@@ -479,7 +449,6 @@ mod tests {
                 // Second tick → Distance(test=C1, prod=C2, d=-1) → deploy prod
                 advance_one_tick().await;
                 expect_deployment(&nix_prod, "prod").await;
-                expect_deployment(&nix_hm, "prod").await;
 
                 pullix_running.abort();
             })
@@ -517,10 +486,8 @@ mod tests {
         let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
         let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
 
         let task_local = tokio::task::LocalSet::new();
         task_local
@@ -531,7 +498,6 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
-                        ref_hm.as_ref(),
                         last_commit_metric,
                         remote_state,
                     )
@@ -546,7 +512,6 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
-                expect_deployment(&nix_hm, "prod").await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -555,7 +520,6 @@ mod tests {
                 // Second tick → Distance(test=C2, prod=C1, d=1) → deploy test
                 advance_one_tick().await;
                 expect_deployment(&nix_test, "test").await;
-                expect_deployment(&nix_hm, "test").await;
 
                 pullix_running.abort();
             })
@@ -596,10 +560,8 @@ mod tests {
         let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
         let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
 
         let task_local = tokio::task::LocalSet::new();
         task_local
@@ -610,7 +572,6 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
-                        ref_hm.as_ref(),
                         last_commit_metric,
                         remote_state,
                     )
@@ -622,7 +583,6 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod (initial)").await;
-                expect_deployment(&nix_hm, "prod (initial)").await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -631,7 +591,6 @@ mod tests {
                 // Second tick → deploy test
                 advance_one_tick().await;
                 expect_deployment(&nix_test, "test").await;
-                expect_deployment(&nix_hm, "test").await;
 
                 // Move prod tag to C3 (now ahead of test)
                 let c3 = repo.add_commit().unwrap();
@@ -641,7 +600,6 @@ mod tests {
                 // Distance(test=C2, prod=C3, d=-1) → deploy prod(C3)
                 advance_one_tick().await;
                 let deployed = expect_deployment(&nix_prod, "prod (updated)").await;
-                let _deployed_hm = expect_deployment(&nix_hm, "prod (updated)").await;
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c3.to_string()).as_deref(),
@@ -691,10 +649,8 @@ mod tests {
         // Test channel uses the togglable mock (starts as FAIL)
         let nix_test = Arc::new(NixTestTogglable::new(false));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
         let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
 
         let task_local = tokio::task::LocalSet::new();
         task_local
@@ -705,7 +661,6 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
-                        ref_hm.as_ref(),
                         last_commit_metric,
                         remote_state,
                     )
@@ -717,7 +672,6 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
-                expect_deployment(&nix_hm, "prod").await;
 
                 // Add C2 tagged "test" (ahead of prod).
                 // nix_test is still set to FAIL.
@@ -732,10 +686,6 @@ mod tests {
                     nix_test.deployments.borrow_mut().try_recv().is_err(),
                     "test deployment should have failed – nothing on channel"
                 );
-                assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "home manager test deployment should have failed – nothing on channel"
-                );
 
                 // ── Tick 3 → C2 is already recorded (failed) → Nothing ──
                 advance_one_tick().await;
@@ -743,16 +693,11 @@ mod tests {
                     nix_test.deployments.borrow_mut().try_recv().is_err(),
                     "failed commit should not be retried"
                 );
-                assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "failed home manager commit should not be retried"
-                );
 
                 // Move test tag to C3 and switch mock to succeed
                 let c3 = repo.add_commit().unwrap();
                 repo.move_tag("test", c3).unwrap();
                 nix_test.set_should_succeed(true);
-                nix_hm.set_should_succeed(true);
 
                 // ── Tick 4 → test(C3) is new → deploy test(C3) → OK ──
                 advance_one_tick().await;
@@ -762,12 +707,6 @@ mod tests {
                     .recv()
                     .await
                     .expect("Expected a successful test deployment for C3");
-                let _deployed_hm = nix_hm
-                    .deployments
-                    .borrow_mut()
-                    .recv()
-                    .await
-                    .expect("Expected a successful home manager test deployment for C3");
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c3.to_string()).as_deref(),
@@ -810,10 +749,8 @@ mod tests {
         let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
         let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
 
         let task_local = tokio::task::LocalSet::new();
         task_local
@@ -824,7 +761,6 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
-                        ref_hm.as_ref(),
                         last_commit_metric,
                         remote_state,
                     )
@@ -836,7 +772,6 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_test, "test").await;
-                expect_deployment(&nix_hm, "test").await;
 
                 // Add prod tag on the SAME commit C1 (prod rebased on test)
                 repo.add_tag("prod", c1).unwrap();
@@ -845,7 +780,6 @@ mod tests {
                 // distance <= 0 and prod not yet deployed → deploy prod
                 advance_one_tick().await;
                 let deployed = expect_deployment(&nix_prod, "prod (rebased on test)").await;
-                let _deployed_hm = expect_deployment(&nix_hm, "prod (rebased on test)").await;
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c1.to_string()).as_deref(),
@@ -889,10 +823,8 @@ mod tests {
         let remote_state = RemoteStateMetric::new(&meter);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
         let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
 
         let task_local = tokio::task::LocalSet::new();
         task_local
@@ -903,7 +835,6 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
-                        ref_hm.as_ref(),
                         last_commit_metric,
                         remote_state,
                     )
@@ -915,7 +846,6 @@ mod tests {
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
                 expect_deployment(&nix_prod, "prod").await;
-                expect_deployment(&nix_hm, "prod").await;
 
                 // Add test tag on the SAME commit C1 (test rebased on prod)
                 repo.add_tag("test", c1).unwrap();
@@ -928,171 +858,8 @@ mod tests {
                     "test should not be deployed when rebased on already-deployed prod"
                 );
                 assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "home manager test should not be deployed when rebased on already-deployed prod"
-                );
-                assert!(
                     nix_prod.deployments.borrow_mut().try_recv().is_err(),
                     "prod should not be redeployed"
-                );
-                assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "home manager prod should not be redeployed"
-                );
-
-                pullix_running.abort();
-            })
-            .await;
-    }
-
-    /// **Test 8 – Complex scenario with mixed NixOS and Home Manager deployment outcomes**
-    ///
-    /// This test covers a complex scenario where:
-    /// - prod tag on commit 0: both NixOS and Home Manager deployments succeed
-    /// - test tag on commit 1: both NixOS and Home Manager deployments fail
-    /// - test tag moved to commit 2: both fail again (different reason)
-    /// - test tag moved to commit 3: both NixOS and Home Manager succeed
-    ///
-    /// History evolution:
-    /// ```text
-    /// t=0    C0(prod)                                            [main at C0]
-    /// t=60   poll → deploy prod (both succeed)
-    /// t=60   C0(prod) → C1(test)                                 [main at C1]
-    ///        (both set to FAIL)
-    /// t=180  poll → deploy test(C1) → both FAIL
-    /// t=300  poll → C1 already in history (failed) → Nothing
-    /// t=300  Move test to C2, both still set to FAIL
-    /// t=420  poll → deploy test(C2) → both FAIL
-    /// t=540  poll → C2 already in history (failed) → Nothing
-    /// t=540  Move test to C3, both set to OK
-    /// t=660  poll → deploy test(C3) → both succeed
-    /// ```
-    #[tokio::test(start_paused = true)]
-    pub async fn test_complex_mixed_deployment_outcomes() {
-        let _ = tracing_subscriber::fmt::try_init();
-        debug!("test_complex_mixed_deployment_outcomes");
-
-        let app_dir = TempDir::new().unwrap();
-        let mut repo = TestRepo::new().unwrap();
-
-        // C0 tagged "prod"
-        let c0 = repo.add_commit().unwrap();
-        repo.add_tag("prod", c0).unwrap();
-
-        let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
-        let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
-
-        // Start with all succeeding
-        let nix_test = Arc::new(NixTestTogglable::new(true));
-        let nix_prod = Arc::new(NixTestTogglable::new(true));
-        let nix_hm = Arc::new(NixTestTogglable::new(true));
-        let ref_test = nix_test.clone();
-        let ref_prod = nix_prod.clone();
-        let ref_hm = nix_hm.clone();
-
-        let task_local = tokio::task::LocalSet::new();
-        task_local
-            .run_until(async move {
-                let pullix_running = tokio::task::spawn_local(async move {
-                    run_pullix(
-                        &config,
-                        &git,
-                        ref_test.as_ref(),
-                        ref_prod.as_ref(),
-                        ref_hm.as_ref(),
-                        last_commit_metric,
-                        remote_state,
-                    )
-                    .await
-                    .unwrap()
-                });
-
-                // ── Tick 1 → only prod tag → deploy prod (both succeed) ──
-                tokio::time::advance(Duration::from_secs(60)).await;
-                tokio::task::yield_now().await;
-                expect_deployment(&nix_prod, "nixos prod").await;
-                expect_deployment(&nix_hm, "hm prod").await;
-
-                // Add C1 tagged "test" (ahead of prod)
-                // Set both to fail for this commit
-                let c1 = repo.add_commit().unwrap();
-                repo.add_tag("test", c1).unwrap();
-                nix_test.set_should_succeed(false);
-                nix_hm.set_should_succeed(false);
-
-                // ── Tick 2 → deploy test(C1) → both FAIL ──
-                advance_one_tick().await;
-                // Both deployments should fail
-                assert!(
-                    nix_test.deployments.borrow_mut().try_recv().is_err(),
-                    "test deployment should have failed"
-                );
-                assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "home manager test deployment should have failed"
-                );
-
-                // ── Tick 3 → C1 already in history (HM failed) → Nothing ──
-                advance_one_tick().await;
-                assert!(
-                    nix_test.deployments.borrow_mut().try_recv().is_err(),
-                    "test should not be retried"
-                );
-                assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "home manager test should not be retried"
-                );
-
-                // Move test to C2, both still set to FAIL
-                let c2 = repo.add_commit().unwrap();
-                repo.move_tag("test", c2).unwrap();
-                // Both still set to fail
-
-                // ── Tick 4 → deploy test(C2) → both FAIL ──
-                advance_one_tick().await;
-                // Both deployments should fail
-                assert!(
-                    nix_test.deployments.borrow_mut().try_recv().is_err(),
-                    "nixos test deployment should have failed"
-                );
-                assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "home manager test deployment should have failed"
-                );
-
-                // ── Tick 5 → C2 already in history (NixOS failed) → Nothing ──
-                advance_one_tick().await;
-                assert!(
-                    nix_test.deployments.borrow_mut().try_recv().is_err(),
-                    "nixos test should not be retried"
-                );
-                assert!(
-                    nix_hm.deployments.borrow_mut().try_recv().is_err(),
-                    "home manager test should not be retried"
-                );
-
-                // Move test to C3, set both to succeed
-                let c3 = repo.add_commit().unwrap();
-                repo.move_tag("test", c3).unwrap();
-                nix_test.set_should_succeed(true);
-                nix_hm.set_should_succeed(true);
-
-                // ── Tick 6 → deploy test(C3) → both succeed ──
-                advance_one_tick().await;
-                let deployed_test = expect_deployment(&nix_test, "test(C3) NixOS").await;
-                let deployed_hm = expect_deployment(&nix_hm, "test(C3) HM").await;
-                assert_eq!(
-                    deployed_test.rev.as_deref(),
-                    Some(c3.to_string()).as_deref(),
-                    "test deployment should use commit C3"
-                );
-                assert_eq!(
-                    deployed_hm.rev.as_deref(),
-                    Some(c3.to_string()).as_deref(),
-                    "home manager deployment should use commit C3"
                 );
 
                 pullix_running.abort();

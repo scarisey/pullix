@@ -114,6 +114,7 @@ let
       otel_http_endpoint = cfg.otelHttpEndpoint;
       private_key = cfg.privateKey;
       keep_last = cfg.keepLast;
+      home_manager_command = cfg.homeManagerCommand;
     }
   );
 in
@@ -198,6 +199,12 @@ in
       type = types.int;
       default = 100;
       description = "Number of deployments to keep in history (internal state)";
+    };
+
+    homeManagerCommand = mkOption {
+      type = types.str;
+      default = "home-manager switch --flake .";
+      description = "Command to run home-manager";
     };
   };
 
