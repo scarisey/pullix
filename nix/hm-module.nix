@@ -157,7 +157,7 @@ in
 
     appDir = mkOption {
       type = types.str;
-      default = "/var/lib/pullix";
+      default = "${config.xdg.configHome}/pullix";
       description = "Directory for pullix state files";
     };
 
@@ -210,15 +210,12 @@ in
 
   config = mkIf cfg.enable {
     # Ensure app directory exists
-    systemd.tmpfiles.rules = [
-      "d ${cfg.appDir} 0755 root root -"
+    systemd.user.tmpfiles.rules = [
+      "d ${cfg.appDir} 0755 - - -"
     ];
 
-    systemd.services.pullix = {
+    systemd.user.services.pullix = {
       description = "Pullix deployment service";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
       # Prevent nixos-rebuild from restarting this service during switch
       reloadIfChanged = false;
       restartIfChanged = false;
@@ -238,7 +235,6 @@ in
         {
           PULLIX_CONFIG = "${toString configFile}";
           inherit (config.environment.sessionVariables) NIX_PATH;
-          HOME = "/root";
         }
         config.nix.envVars
         config.networking.proxy.envVars
