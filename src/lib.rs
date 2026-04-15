@@ -297,6 +297,33 @@ mod tests {
         config
     }
 
+    /// Build a Home manager `Config` that points at a local git repo and resolves the
+    /// `test` / `prod` tags via the `ref_` field (reference-name lookup).
+    fn make_home_manager_pullix_config(repo_path: &str, app_dir: &TempDir) -> Config {
+        Config {
+            flake_repo: ConfigFlake {
+                type_: FlakeType::GitFile,
+                repo: repo_path.to_string(),
+                host: None,
+                test_spec: Some(UrlSpecConfig {
+                    ref_: Some("test".into()),
+                    rev: None,
+                }),
+                prod_spec: Some(UrlSpecConfig {
+                    ref_: Some("prod".into()),
+                    rev: None,
+                }),
+            },
+            poll_interval_secs: 60,
+            app_dir: app_dir.path().to_str().unwrap().into(),
+            hostname: "foo".to_string(),
+            otel_http_endpoint: None,
+            private_key: None,
+            keep_last: 100,
+            home_manager_command: Some("home-manager switch --flake .".into()),
+        }
+    }
+
     /// Advance the paused clock by one full poll interval (+ yield) so that
     /// the `run_pullix` loop completes exactly one iteration.
     async fn advance_one_tick() {
@@ -306,7 +333,11 @@ mod tests {
 
     /// Wait for a deployment to arrive on the given channel and return the
     /// `FlakeRef` that was deployed.  Panics if the channel is closed.
-    async fn expect_deployment(nix: &Arc<NixTestTogglable>, label: &str) -> FlakeRef {
+    async fn expect_deployment(
+        nix: &Arc<NixTestTogglable>,
+        label: &str,
+        expected_commit: &str,
+    ) -> FlakeRef {
         debug!("Waiting for {} deployment ...", label);
         let deployed = nix
             .deployments
@@ -317,6 +348,13 @@ mod tests {
         debug!(
             "Received on {} deployment for {:?} ({:?})",
             label, deployed.rev, deployed.ref_
+        );
+        assert_eq!(
+            deployed.rev.as_deref(),
+            Some(expected_commit),
+            "Expected deployment of commit {} but got {:?}",
+            expected_commit,
+            deployed.rev
         );
         deployed
     }
@@ -375,7 +413,7 @@ mod tests {
                 // First tick → only prod tag exists → deploy prod
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
-                expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_prod, "prod", &c1.to_string()).await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -383,7 +421,72 @@ mod tests {
 
                 // Second tick → Distance(test=C2, prod=C1, d=1) → deploy test
                 advance_one_tick().await;
-                expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_test, "test", &c2.to_string()).await;
+
+                pullix_running.abort();
+            })
+            .await;
+    }
+
+    /// **Test 1 again – Same test with home manager configuration**
+    ///
+    /// History evolution:
+    /// ```text
+    /// t=0   C0 → C1(prod)                      [main at C1]
+    /// t=60  poll → deploy prod
+    /// t=60  C0 → C1(prod) → C2(test)            [main at C2]
+    /// t=180 poll → deploy test
+    /// ```
+    #[tokio::test(start_paused = true)]
+    pub async fn test_hm_config_start_with_prod_then_test() {
+        let _ = tracing_subscriber::fmt::try_init();
+        debug!("test_start_with_prod_then_test");
+
+        let app_dir = TempDir::new().unwrap();
+        let mut repo = TestRepo::new().unwrap();
+
+        // C1 tagged "prod"
+        let c1 = repo.add_commit().unwrap();
+        repo.add_tag("prod", c1).unwrap();
+
+        let config = make_home_manager_pullix_config(repo.path(), &app_dir);
+        let git = Git::new();
+        let meter = global::meter("pullix");
+        let last_commit_metric = LastCommitMetric::new(&meter);
+        let remote_state = RemoteStateMetric::new(&meter);
+        let nix_test = Arc::new(NixTestTogglable::new(true));
+        let nix_prod = Arc::new(NixTestTogglable::new(true));
+        let ref_test = nix_test.clone();
+        let ref_prod = nix_prod.clone();
+
+        let task_local = tokio::task::LocalSet::new();
+        task_local
+            .run_until(async move {
+                let pullix_running = tokio::task::spawn_local(async move {
+                    run_pullix(
+                        &config,
+                        &git,
+                        ref_test.as_ref(),
+                        ref_prod.as_ref(),
+                        last_commit_metric,
+                        remote_state,
+                    )
+                    .await
+                    .unwrap()
+                });
+
+                // First tick → only prod tag exists → deploy prod
+                tokio::time::advance(Duration::from_secs(60)).await;
+                tokio::task::yield_now().await;
+                expect_deployment(&nix_prod, "prod", &c1.to_string()).await;
+
+                // Add C2 tagged "test" (ahead of prod)
+                let c2 = repo.add_commit().unwrap();
+                repo.add_tag("test", c2).unwrap();
+
+                // Second tick → Distance(test=C2, prod=C1, d=1) → deploy test
+                advance_one_tick().await;
+                expect_deployment(&nix_test, "test", &c2.to_string()).await;
 
                 pullix_running.abort();
             })
@@ -440,7 +543,7 @@ mod tests {
                 // First tick → only test tag exists → deploy test
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
-                expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_test, "test", &c1.to_string()).await;
 
                 // Add C2 tagged "prod" (ahead of test on main)
                 let c2 = repo.add_commit().unwrap();
@@ -448,7 +551,7 @@ mod tests {
 
                 // Second tick → Distance(test=C1, prod=C2, d=-1) → deploy prod
                 advance_one_tick().await;
-                expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_prod, "prod", &c2.to_string()).await;
 
                 pullix_running.abort();
             })
@@ -511,7 +614,7 @@ mod tests {
                 // First tick → Prod(C1) → deploy prod
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
-                expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_prod, "prod", &c1.to_string()).await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -519,7 +622,7 @@ mod tests {
 
                 // Second tick → Distance(test=C2, prod=C1, d=1) → deploy test
                 advance_one_tick().await;
-                expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_test, "test", &c2.to_string()).await;
 
                 pullix_running.abort();
             })
@@ -582,7 +685,7 @@ mod tests {
                 // First tick → only prod tag → deploy prod
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
-                expect_deployment(&nix_prod, "prod (initial)").await;
+                expect_deployment(&nix_prod, "prod (initial)", &c1.to_string()).await;
 
                 // Add C2 tagged "test" (ahead of prod)
                 let c2 = repo.add_commit().unwrap();
@@ -590,7 +693,7 @@ mod tests {
 
                 // Second tick → deploy test
                 advance_one_tick().await;
-                expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_test, "test", &c2.to_string()).await;
 
                 // Move prod tag to C3 (now ahead of test)
                 let c3 = repo.add_commit().unwrap();
@@ -599,7 +702,8 @@ mod tests {
                 // Third tick → sync_repo picks up the moved tag →
                 // Distance(test=C2, prod=C3, d=-1) → deploy prod(C3)
                 advance_one_tick().await;
-                let deployed = expect_deployment(&nix_prod, "prod (updated)").await;
+                let deployed =
+                    expect_deployment(&nix_prod, "prod (updated)", &c3.to_string()).await;
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c3.to_string()).as_deref(),
@@ -671,7 +775,7 @@ mod tests {
                 // ── Tick 1 → only prod tag → deploy prod (OK) ──
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
-                expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_prod, "prod", &c1.to_string()).await;
 
                 // Add C2 tagged "test" (ahead of prod).
                 // nix_test is still set to FAIL.
@@ -771,7 +875,7 @@ mod tests {
                 // First tick → only test tag exists → deploy test
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
-                expect_deployment(&nix_test, "test").await;
+                expect_deployment(&nix_test, "test", &c1.to_string()).await;
 
                 // Add prod tag on the SAME commit C1 (prod rebased on test)
                 repo.add_tag("prod", c1).unwrap();
@@ -779,7 +883,8 @@ mod tests {
                 // Second tick → Distance(test=C1, prod=C1, d=0) →
                 // distance <= 0 and prod not yet deployed → deploy prod
                 advance_one_tick().await;
-                let deployed = expect_deployment(&nix_prod, "prod (rebased on test)").await;
+                let deployed =
+                    expect_deployment(&nix_prod, "prod (rebased on test)", &c1.to_string()).await;
                 assert_eq!(
                     deployed.rev.as_deref(),
                     Some(c1.to_string()).as_deref(),
@@ -845,7 +950,7 @@ mod tests {
                 // First tick → only prod tag exists → deploy prod
                 tokio::time::advance(Duration::from_secs(60)).await;
                 tokio::task::yield_now().await;
-                expect_deployment(&nix_prod, "prod").await;
+                expect_deployment(&nix_prod, "prod", &c1.to_string()).await;
 
                 // Add test tag on the SAME commit C1 (test rebased on prod)
                 repo.add_tag("test", c1).unwrap();
