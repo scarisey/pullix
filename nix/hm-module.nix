@@ -83,6 +83,26 @@ let
     };
   };
 
+  homeManagerType = types.submodule {
+    options = {
+      package = mkOption {
+        type = types.package;
+        default = config.programs.home-manager.package;
+        description = "Home-manager package to use";
+      };
+      username = mkOption {
+        type = types.str;
+        default = config.home.username;
+        description = "Username to use for home-manager";
+      };
+      group = mkOption {
+        type = types.str;
+        description = "Group to use for pullix state dir";
+        default = "users";
+      };
+    };
+  };
+
   configFormat = pkgs.formats.toml { };
 
   urlSpecToToml =
@@ -105,6 +125,16 @@ let
     else
       null;
 
+  homeManagerToToml =
+    homeManager:
+    if homeManager != null then
+      (filterAttrs (n: v: v != null) {
+        inherit (homeManager) username;
+        package = (toString homeManager.package);
+      })
+    else
+      null;
+
   configFile = configFormat.generate "pullix-config.toml" (
     filterAttrs (n: v: v != null) {
       flake_repo = flakeRepoToToml cfg.flakeRepo;
@@ -114,7 +144,7 @@ let
       otel_http_endpoint = cfg.otelHttpEndpoint;
       private_key = cfg.privateKey;
       keep_last = cfg.keepLast;
-      home_manager_command = cfg.homeManagerCommand;
+      home_manager = homeManagerToToml cfg.homeManager;
     }
   );
 in
@@ -201,47 +231,30 @@ in
       description = "Number of deployments to keep in history (internal state)";
     };
 
-    homeManagerCommand = mkOption {
-      type = types.str;
-      default = "home-manager switch --flake .";
-      description = "Command to run home-manager";
+    homeManager = mkOption {
+      type = homeManagerType;
+      default = {};
+      description = "Home Manager configuration";
     };
   };
 
   config = mkIf cfg.enable {
-    # Ensure app directory exists
     systemd.user.tmpfiles.rules = [
-      "d ${cfg.appDir} 0755 - - -"
+      "d ${cfg.appDir} 0755 ${cfg.homeManager.username} ${cfg.homeManager.group} -"
     ];
 
     systemd.user.services.pullix = {
-      description = "Pullix deployment service";
-      # Prevent nixos-rebuild from restarting this service during switch
-      reloadIfChanged = false;
-      restartIfChanged = false;
-      unitConfig.X-StopOnRemoval = false;
-      stopIfChanged = false;
-      path = with pkgs; [
-        coreutils
-        gnutar
-        xz.bin
-        gzip
-        gitMinimal
-        config.nix.package.out
-        config.programs.ssh.package
-        systemd
-      ];
-      environment = mkMerge [
-        {
-          PULLIX_CONFIG = "${toString configFile}";
-          inherit (config.environment.sessionVariables) NIX_PATH;
-        }
-        config.nix.envVars
-        config.networking.proxy.envVars
-        (mkIf cfg.verbose_logs { RUST_LOG = "DEBUG"; })
-      ];
-
-      serviceConfig = {
+      Unit = {
+        Description = "Pullix deployment service";
+        X-SwitchMethod = "keep-old";
+      };
+      Service = {
+        User = "${cfg.homeManager.username}";
+        Group = "${cfg.homeManager.group}";
+        Environment = [
+          "PULLIX_CONFIG=${toString configFile}"
+          (mkIf cfg.verbose_logs "RUST_LOG=DEBUG")
+        ];
         Type = "simple";
         Restart = "on-failure";
         RestartSec = "10s";

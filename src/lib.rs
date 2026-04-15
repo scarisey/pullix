@@ -37,7 +37,7 @@ pub async fn run_pullix(
         let start_time = std::time::Instant::now();
         debug!("Imposed delay");
 
-        let deployments = if config.home_manager_command.is_some() {
+        let deployments = if config.home_manager.is_some() {
             deploy::Deployments::load_from_path(&config.home_manager_state_path())
                 .await
                 .with_context(|| {
@@ -94,7 +94,7 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc::{Receiver, Sender};
 
-    use crate::config::{ConfigFlake, UrlSpecConfig};
+    use crate::config::{ConfigFlake, HomeManagerConfig, UrlSpecConfig};
     use crate::flake::{FlakeRef, FlakeType};
     use crate::nix_commands::NixCommandError;
 
@@ -320,7 +320,10 @@ mod tests {
             otel_http_endpoint: None,
             private_key: None,
             keep_last: 100,
-            home_manager_command: Some("home-manager switch --flake .".into()),
+            home_manager: Some(HomeManagerConfig {
+                username: "foo".into(),
+                package: "".into(),
+            }),
         }
     }
 

@@ -29,9 +29,9 @@ async fn main() -> Result<()> {
     let last_commit_metric = LastCommitMetric::new(&meter);
     let remote_state = RemoteStateMetric::new(&meter);
 
-    match &config.home_manager_command {
-        Some(hm_cmd) => {
-            let nix_cmd = nix_commands::HomeManagerSwitch::new(hm_cmd.clone());
+    match &config.home_manager {
+        Some(hm_config) => {
+            let nix_cmd = nix_commands::HomeManagerSwitch::new(hm_config);
             run_pullix(
                 &config,
                 &git,
