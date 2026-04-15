@@ -20,6 +20,12 @@ pub struct ConfigFlake {
     pub test_spec: Option<UrlSpecConfig>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct HomeManagerConfig {
+    pub username: String,
+    pub package: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub flake_repo: ConfigFlake,
@@ -34,7 +40,7 @@ pub struct Config {
     #[serde(default = "no_private_key")]
     pub private_key: Option<PrivateKey>,
     pub keep_last: usize,
-    pub home_manager_command: Option<String>,
+    pub home_manager: Option<HomeManagerConfig>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -131,7 +137,7 @@ pub mod tests {
             otel_http_endpoint: no_prometheus_endpoint(),
             private_key: None,
             keep_last: 100,
-            home_manager_command: None,
+            home_manager: None,
         }
     }
 }

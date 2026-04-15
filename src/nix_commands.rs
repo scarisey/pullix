@@ -1,6 +1,10 @@
 use std::fmt::Display;
 
-use crate::{config::Config, flake::FlakeRef, nix_commands};
+use crate::{
+    config::{Config, HomeManagerConfig},
+    flake::FlakeRef,
+    nix_commands,
+};
 use anyhow::Result;
 use serde::Serialize;
 use thiserror::Error;
@@ -43,8 +47,7 @@ impl NixCommandError {
         let serialized = serde_json::to_string_pretty(self)?;
         let last_error_path = Self::last_error_path(config);
         if last_error_path.exists() {
-            let error_path = Self::error_path(config);
-            tokio::fs::rename(&last_error_path, error_path).await?;
+            tokio::fs::remove_file(&last_error_path).await?;
         }
         tokio::fs::write(&last_error_path, serialized).await?;
         Ok(())
@@ -52,13 +55,6 @@ impl NixCommandError {
 
     fn last_error_path(config: &Config) -> std::path::PathBuf {
         format!("{}/last_report.json", config.app_dir).into()
-    }
-    fn error_path(config: &Config) -> std::path::PathBuf {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        format!("{}/{}_report.json", config.app_dir, ts,).into()
     }
 }
 
@@ -80,22 +76,31 @@ impl NixCommands for Test {
 }
 
 pub struct HomeManagerSwitch {
-    command: String,
+    config: HomeManagerConfig,
 }
 impl HomeManagerSwitch {
-    pub fn new(command: String) -> Self {
-        Self { command }
+    pub fn new(config: &HomeManagerConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
     }
 }
 impl NixCommands for HomeManagerSwitch {
     async fn deploy(&self, flake_ref: &FlakeRef, hostname: &str) -> Result<(), NixCommandError> {
-        nix_commands::home_manager_switch(flake_ref, hostname, &self.command).await
+        nix_commands::home_manager_switch(
+            flake_ref,
+            hostname,
+            &self.config.username,
+            &self.config.package,
+        )
+        .await
     }
 }
 
 async fn home_manager_switch(
     flake_ref: &FlakeRef,
     hostname: &str,
+    username: &str,
     command: &str,
 ) -> Result<(), NixCommandError> {
     let flake_url = flake_ref
@@ -104,7 +109,7 @@ async fn home_manager_switch(
     debug!("Starting {} from {}", command, flake_url);
 
     let build_output = &Command::new(command)
-        .args([&format!("{}#{}", &flake_url, hostname)])
+        .args([&format!("--flake {}#{}@{}", &flake_url, username, hostname)])
         .output()
         .await
         .map_err(NixCommandError::to_execution)?;

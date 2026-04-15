@@ -620,7 +620,7 @@ mod tests {
             "last_deployed is {last_deployed:?}"
         );
 
-        // Run the second failed deployment to trigger the creation of a timestamped report
+        // Run the second failed deployment to check that last_report.json is recreated
         let last_deployed = should_deploy.run(&config, &NixTestKo, &NixTestKo).await;
         assert!(
             matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))),
@@ -632,24 +632,6 @@ mod tests {
         assert!(
             tokio::fs::try_exists(&last_report_path).await.unwrap(),
             "last_report.json should exist after a failed deployment"
-        );
-
-        // Assert that a timestamped report file exists
-        let mut has_timestamped_report = false;
-        let mut read_dir = tokio::fs::read_dir(&config.app_dir).await.unwrap();
-        while let Some(entry) = read_dir.next_entry().await.unwrap() {
-            let file_name = entry.file_name();
-            let file_name_str = file_name.to_string_lossy();
-            if file_name_str.starts_with(char::is_numeric)
-                && file_name_str.ends_with("_report.json")
-            {
-                has_timestamped_report = true;
-                break;
-            }
-        }
-        assert!(
-            has_timestamped_report,
-            "a timestamped error report should exist after a failed deployment"
         );
     }
 
