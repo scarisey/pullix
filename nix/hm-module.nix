@@ -1,12 +1,10 @@
-{ self }:
-{
+{self}: {
   config,
   lib,
   pkgs,
   ...
 }:
-with lib;
-let
+with lib; let
   cfg = config.services.pullix;
 
   urlSpecConfig = types.submodule {
@@ -90,6 +88,11 @@ let
         default = config.programs.home-manager.package;
         description = "Home-manager package to use";
       };
+      nixBinPath = mkOption {
+        type = types.listOf types.path;
+        default = ["/nix/var/nix/profiles/default/bin" "/run/current-system/sw/bin"];
+        description = "Paths to nix that should be used by home-manager.";
+      };
       username = mkOption {
         type = types.str;
         default = config.home.username;
@@ -98,42 +101,75 @@ let
       group = mkOption {
         type = types.str;
         description = "Group to use for pullix state dir";
-        default = "users";
+        default = config.home.username;
       };
     };
   };
 
-  configFormat = pkgs.formats.toml { };
+  configFormat = pkgs.formats.toml {};
 
-  urlSpecToToml =
-    urlSpec:
-    if urlSpec != null then
+  urlSpecToToml = urlSpec:
+    if urlSpec != null
+    then
       (filterAttrs (n: v: v != null) {
         inherit (urlSpec) ref rev;
       })
-    else
-      null;
+    else null;
 
-  flakeRepoToToml =
-    flakeRepo:
-    if flakeRepo != null then
+  flakeRepoToToml = flakeRepo:
+    if flakeRepo != null
+    then
       (filterAttrs (n: v: v != null) {
         inherit (flakeRepo) type repo host;
         prod_spec = urlSpecToToml flakeRepo.prodSpec;
         test_spec = urlSpecToToml flakeRepo.testSpec;
       })
-    else
-      null;
+    else null;
 
-  homeManagerToToml =
-    homeManager:
-    if homeManager != null then
+  hm_cmd = pkgs.stdenv.mkDerivation {
+    name = "home-manager";
+    nativeBuildInputs = with pkgs;
+      [
+        coreutils
+        gnutar
+        xz.bin
+        gzip
+        gitMinimal
+        systemd
+        makeWrapper
+      ]
+      ++ [
+        config.programs.ssh.package
+      ];
+
+    unpackPhase = ":";
+
+    installPhase = ''
+      mkdir -p $out/bin
+      ln -s ${cfg.homeManager.package}/bin/home-manager $out/bin/home-manager
+      wrapProgram $out/bin/home-manager \
+      --set PATH ${
+        lib.makeBinPath [
+          pkgs.coreutils
+          pkgs.gnutar
+          pkgs.xz.bin
+          pkgs.gzip
+          pkgs.gitMinimal
+          pkgs.systemd
+          config.programs.ssh.package
+        ]
+      }:${builtins.concatStringsSep ":" cfg.homeManager.nixBinPath}
+    '';
+  };
+
+  homeManagerToToml = homeManager:
+    if homeManager != null
+    then
       (filterAttrs (n: v: v != null) {
         inherit (homeManager) username;
-        package = (toString homeManager.package);
+        package = toString hm_cmd;
       })
-    else
-      null;
+    else null;
 
   configFile = configFormat.generate "pullix-config.toml" (
     filterAttrs (n: v: v != null) {
@@ -147,8 +183,7 @@ let
       home_manager = homeManagerToToml cfg.homeManager;
     }
   );
-in
-{
+in {
   options.services.pullix = {
     enable = mkEnableOption "Pullix deployment service";
 
@@ -249,8 +284,6 @@ in
         X-SwitchMethod = "keep-old";
       };
       Service = {
-        User = "${cfg.homeManager.username}";
-        Group = "${cfg.homeManager.group}";
         Environment = [
           "PULLIX_CONFIG=${toString configFile}"
           (mkIf cfg.verbose_logs "RUST_LOG=DEBUG")
