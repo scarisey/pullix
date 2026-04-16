@@ -91,7 +91,7 @@ impl NixCommands for HomeManagerSwitch {
             flake_ref,
             hostname,
             &self.config.username,
-            &self.config.package,
+            format!("{}/bin/home-manager", &self.config.package).as_str(),
         )
         .await
     }
@@ -109,7 +109,11 @@ async fn home_manager_switch(
     debug!("Starting {} from {}", command, flake_url);
 
     let build_output = &Command::new(command)
-        .args([&format!("--flake {}#{}@{}", &flake_url, username, hostname)])
+        .args([
+            "switch",
+            "--flake",
+            &format!("{}#{}@{}", &flake_url, username, hostname),
+        ])
         .output()
         .await
         .map_err(NixCommandError::to_execution)?;
@@ -124,6 +128,7 @@ async fn home_manager_switch(
             stdout: stdout.into(),
         });
     }
+    debug!("Deployment completed successfully");
     Ok(())
 }
 

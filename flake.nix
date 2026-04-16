@@ -11,18 +11,16 @@
     devenv.url = "github:cachix/devenv/v1.11.1";
   };
 
-  outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
-      rust-overlay,
-      devenv,
-    }:
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+    rust-overlay,
+    devenv,
+  }:
     flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        overlays = [ (import rust-overlay) ];
+      system: let
+        overlays = [(import rust-overlay)];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
@@ -37,8 +35,7 @@
         pullix = pkgs.callPackage ./nix/package.nix {
           inherit rustToolchain;
         };
-      in
-      {
+      in {
         packages = {
           inherit pullix;
           default = pullix;
@@ -49,8 +46,8 @@
       }
     )
     // {
-      nixosModules.default = import ./nix/nixos-module.nix { inherit self; };
-      homeManagerModules.default = import ./nix/hm-module.nix { inherit self; };
+      nixosModules.default = import ./nix/nixos-module.nix {inherit self;};
+      homeManagerModules.default = import ./nix/hm-module.nix {inherit self;};
     };
 
   nixConfig = {
