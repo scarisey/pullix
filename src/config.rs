@@ -39,6 +39,8 @@ pub struct Config {
     pub otel_http_endpoint: Option<String>,
     #[serde(default = "no_private_key")]
     pub private_key: Option<PrivateKey>,
+    #[serde(default = "no_github_token")]
+    pub github_token: Option<String>,
     pub keep_last: usize,
     pub home_manager: Option<HomeManagerConfig>,
 }
@@ -68,6 +70,9 @@ impl PrivateKey {
     }
 }
 
+fn no_github_token() -> Option<String> {
+    None
+}
 fn no_private_key() -> Option<PrivateKey> {
     None
 }
@@ -90,10 +95,6 @@ fn linux_hostname() -> String {
         .to_string()
 }
 
-fn no_home_manager_switch() -> bool {
-    false
-}
-
 impl Config {
     pub fn load_from_path(path: &str) -> Result<Self> {
         let contents = &fs::read_to_string(path)
@@ -105,8 +106,22 @@ impl Config {
         if let Some(ref mut pk) = config.private_key {
             pk.setup();
         }
+        std::env::var("GITHUB_TOKEN")
+            .or_else(|_| std::env::var("GH_TOKEN"))
+            .iter()
+            .for_each(|token| {
+                config.github_token = Some(token.clone());
+            });
 
         Ok(config)
+    }
+
+    pub fn actual_state_path(&self) -> String {
+        if self.home_manager.is_some() {
+            self.home_manager_state_path()
+        } else {
+            self.nixos_state_path()
+        }
     }
 
     pub fn nixos_state_path(&self) -> String {
@@ -138,6 +153,7 @@ pub mod tests {
             private_key: None,
             keep_last: 100,
             home_manager: None,
+            github_token: None,
         }
     }
 }
