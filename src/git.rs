@@ -155,10 +155,8 @@ impl Git {
         };
 
         let mut fetch_options = git2::FetchOptions::new();
-        if let Some(pk) = private_key {
-            let callbacks = Git::credentials_callback(pk);
-            fetch_options.remote_callbacks(callbacks);
-        }
+        let callbacks = Git::credentials_callback(private_key);
+        fetch_options.remote_callbacks(callbacks);
 
         // Delete all local tags before fetching so that moved or deleted
         // remote tags are always picked up via tag auto-following.
@@ -295,15 +293,48 @@ impl Git {
         Ok(count)
     }
 
-    fn credentials_callback(private_key: &PrivateKey) -> git2::RemoteCallbacks<'_> {
+    fn credentials_callback(private_key: Option<&PrivateKey>) -> git2::RemoteCallbacks<'static> {
         let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            git2::Cred::ssh_key(
-                username_from_url.unwrap_or("git"),
-                None,
-                Path::new(&private_key.path),
-                Some(private_key.passphrase()),
-            )
+
+        let pk_path = private_key.map(|pk| pk.path.clone());
+        let pk_passphrase = private_key.map(|pk| pk.passphrase().clone());
+        let github_token = std::env::var("GITHUB_TOKEN")
+            .or_else(|_| std::env::var("GH_TOKEN"))
+            .ok();
+
+        let mut tried_ssh = false;
+        let mut tried_userpass = false;
+
+        callbacks.credentials(move |url, username_from_url, allowed_types| {
+            // libgit2 may request USERNAME before SSH_KEY during SSH negotiation
+            if allowed_types.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(username_from_url.unwrap_or("git"));
+            }
+
+            if allowed_types.contains(git2::CredentialType::SSH_KEY) && !tried_ssh {
+                tried_ssh = true;
+                if let (Some(path), Some(passphrase)) = (&pk_path, &pk_passphrase) {
+                    return git2::Cred::ssh_key(
+                        username_from_url.unwrap_or("git"),
+                        None,
+                        Path::new(path),
+                        Some(passphrase.as_str()),
+                    );
+                }
+            }
+
+            // Only offer GitHub token to github.com to avoid leaking it to other hosts
+            if allowed_types.contains(git2::CredentialType::USER_PASS_PLAINTEXT)
+                && !tried_userpass
+                && url.contains("github.com")
+            {
+                tried_userpass = true;
+                if let Some(token) = &github_token {
+                    return git2::Cred::userpass_plaintext("x-access-token", token);
+                }
+            }
+
+            Err(git2::Error::from_str("No credentials available"))
         });
         callbacks
     }

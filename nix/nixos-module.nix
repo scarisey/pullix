@@ -164,8 +164,14 @@ in {
 
     environmentFile = mkOption {
       type = types.nullOr types.path;
-      description = "Additional environment file to source for the pullix service";
+      description = ''
+        Additional environment file to source for the pullix service.
+        For private GitHub HTTPS repositories, set GITHUB_TOKEN (or GH_TOKEN)
+        so pullix can authenticate git fetches.
+        NIX_CONFIG access-tokens cover nix commands; GITHUB_TOKEN covers git2 fetches.
+      '';
       example = literalExpression ''
+        GITHUB_TOKEN=ghp_xxx
         NIX_CONFIG='access-tokens = github.com=ghp_xxx'
       '';
       default = null;
