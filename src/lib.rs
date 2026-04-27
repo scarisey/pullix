@@ -320,6 +320,7 @@ mod tests {
             otel_http_endpoint: None,
             private_key: None,
             keep_last: 100,
+            github_token: None,
             home_manager: Some(HomeManagerConfig {
                 username: "foo".into(),
                 package: "".into(),
