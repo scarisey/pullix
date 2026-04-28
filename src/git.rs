@@ -78,20 +78,19 @@ pub struct Git {
 
 impl Default for Git {
     fn default() -> Self {
-        Self::new()
+        Self::new().unwrap()
     }
 }
 
 impl Git {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let temp_dir = TempDir::with_prefix("pullix-temp-repos")
-            .context("Failed to create temporary directory for git operations")
-            .unwrap();
+            .context("Failed to create temporary directory for git operations")?;
 
-        Self {
+        Ok(Self {
             dir: temp_dir,
             repository: OnceCell::new(),
-        }
+        })
     }
 
     pub async fn last_commit_on_main(&self) -> Option<Commit> {
@@ -480,7 +479,7 @@ mod tests {
         );
 
         // -- act --
-        let git = Git::new();
+        let git = Git::default();
         let result = git
             .sync_and_get_commits(&config)
             .await
@@ -554,7 +553,7 @@ mod tests {
             }),
         );
 
-        let git = Git::new();
+        let git = Git::default();
         let result = git
             .sync_and_get_commits(&config)
             .await
@@ -629,7 +628,7 @@ mod tests {
             }),
         );
 
-        let git = Git::new();
+        let git = Git::default();
         let result = git
             .sync_and_get_commits(&config)
             .await
@@ -690,7 +689,7 @@ mod tests {
             }),
         );
 
-        let git = Git::new();
+        let git = Git::default();
         let result = git
             .sync_and_get_commits(&config)
             .await
@@ -753,7 +752,7 @@ mod tests {
             }),
         );
 
-        let git = Git::new();
+        let git = Git::default();
         let result = git
             .sync_and_get_commits(&config)
             .await
@@ -807,7 +806,7 @@ mod tests {
             }),
         );
 
-        let git = Git::new();
+        let git = Git::default();
         let result = git
             .sync_and_get_commits(&config)
             .await
@@ -859,7 +858,7 @@ mod tests {
             }),
         );
 
-        let git = Git::new();
+        let git = Git::default();
         let result = git.sync_and_get_commits(&config).await;
 
         assert!(result.is_err(), "Expected error when neither tag exists");
@@ -950,7 +949,7 @@ mod tests {
             }),
         );
 
-        let git = Git::new();
+        let git = Git::default();
         let result = git.sync_and_get_commits(&config).await;
 
         assert!(result.is_err(), "Expected error for diverged branches");

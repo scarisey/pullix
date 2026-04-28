@@ -1,3 +1,5 @@
+use std::io::ErrorKind;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -56,6 +58,12 @@ impl Deployments {
     pub async fn load_from_path(path: &str) -> anyhow::Result<Self> {
         let data = tokio::fs::read_to_string(path).await;
         let deployments = match data {
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                error!("Failed to load deployments from path: {:?}", e);
+                Deployments {
+                    history: vec![Deployed::Init],
+                }
+            }
             Err(_) => Deployments {
                 history: vec![Deployed::Init],
             },
@@ -170,7 +178,7 @@ pub enum ShouldDeploy {
 }
 
 impl ShouldDeploy {
-    async fn _run<'a>(
+    async fn execute_deployment<'a>(
         deployments: &'a mut Deployments,
         flake_ref: &FlakeRef,
         config: &Config,
@@ -221,14 +229,14 @@ impl ShouldDeploy {
                 commit,
             } => {
                 flake_test.update_rev(commit);
-                ShouldDeploy::_run(deployments, &flake_test, config, nix_commands_for_test).await
+                ShouldDeploy::execute_deployment(deployments, &flake_test, config, nix_commands_for_test).await
             }
             ShouldDeploy::ToProd {
                 deployments,
                 commit,
             } => {
                 flake_prod.update_rev(commit);
-                ShouldDeploy::_run(deployments, &flake_prod, config, nix_commands_for_prod).await
+                ShouldDeploy::execute_deployment(deployments, &flake_prod, config, nix_commands_for_prod).await
             }
         }
     }

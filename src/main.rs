@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
     let config_path = std::env::var("PULLIX_CONFIG").context("Can't find PULLIX_CONFIG env var")?;
     let config = Config::load_from_path(&config_path)
         .with_context(|| format!("Failed to load config from {}", config_path))?;
-    let git = Git::new();
+    let git = Git::new()?;
 
     let meter_provider = setup_otel(&config);
     let meter = meter_provider

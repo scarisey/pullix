@@ -26,7 +26,7 @@ impl RemoteStateMetric {
                 .unwrap_or(KeyValue::new("prod_commit", "unknown")),
             test_commit
                 .map(|c| KeyValue::new("test_commit", c.to_string()))
-                .unwrap_or(KeyValue::new("prod_commit", "unknown")),
+                .unwrap_or(KeyValue::new("test_commit", "unknown")),
         ];
         self.0.record(1, &labels);
     }
