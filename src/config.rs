@@ -41,6 +41,7 @@ pub struct Config {
     pub private_key: Option<PrivateKey>,
     #[serde(default = "no_github_token")]
     pub github_token: Option<String>,
+    #[serde(default = "keep_last_default")]
     pub keep_last: usize,
     pub home_manager: Option<HomeManagerConfig>,
 }
@@ -53,21 +54,24 @@ pub struct PrivateKey {
     passphrase: String,
 }
 impl PrivateKey {
-    fn setup(&mut self) {
-        let pass = std::fs::read_to_string(&self.passphrase_path)
-            .with_context(|| {
-                format!(
-                    "Unable to retrieve passphrase for {}",
-                    &self.passphrase_path
-                )
-            })
-            .unwrap();
+    fn setup(&mut self) -> Result<()> {
+        let pass = std::fs::read_to_string(&self.passphrase_path).with_context(|| {
+            format!(
+                "Unable to retrieve passphrase for {}",
+                &self.passphrase_path
+            )
+        })?;
         self.passphrase = pass;
+        Ok(())
     }
 
     pub fn passphrase(&self) -> &String {
         &self.passphrase
     }
+}
+
+fn keep_last_default() -> usize {
+    60
 }
 
 fn no_github_token() -> Option<String> {
@@ -104,7 +108,7 @@ impl Config {
             .with_context(|| format!("Failed to parse config file: {}", path))?;
 
         if let Some(ref mut pk) = config.private_key {
-            pk.setup();
+            pk.setup()?;
         }
         std::env::var("GITHUB_TOKEN")
             .or_else(|_| std::env::var("GH_TOKEN"))

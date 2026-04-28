@@ -121,17 +121,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
-name = "dataclasses"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab80acceb4a65a4b87f5fbcc1e97260d3c6f46a24a0cea0d7b11a38d5b869bd9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -989,7 +978,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "dataclasses",
  "derive_more",
  "gethostname",
  "git2",

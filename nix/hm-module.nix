@@ -228,9 +228,7 @@ in {
 
     hostname = mkOption {
       type = types.str;
-      default = config.networking.hostName;
-      defaultText = literalExpression "config.networking.hostName";
-      description = "Hostname to use for nixosConfiguration lookup in flake";
+      description = "Hostname to use for homeConfigurations lookup in flake";
     };
 
     environmentFile = mkOption {
@@ -297,7 +295,7 @@ in {
         Type = "simple";
         Restart = "on-failure";
         RestartSec = "10s";
-        EnvironmentFile = cfg.environmentFile;
+        EnvironmentFile = lib.mkIf (cfg.environmentFile != null) cfg.environmentFile;
         ExecStart = "${self.packages.${pkgs.system}.pullix}/bin/pullix";
       };
     };

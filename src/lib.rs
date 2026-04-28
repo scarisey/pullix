@@ -27,7 +27,7 @@ pub async fn run_pullix(
     last_commit_metric: LastCommitMetric,
     remote_state: RemoteStateMetric,
 ) -> Result<()> {
-    let mut elapsed_secs = 0;
+    let mut elapsed_secs = config.poll_interval_secs;
     loop {
         let _loop = span!(Level::TRACE, "loop");
         let _loop_span = _loop.enter();
@@ -37,25 +37,7 @@ pub async fn run_pullix(
         let start_time = std::time::Instant::now();
         debug!("Imposed delay");
 
-        let deployments = if config.home_manager.is_some() {
-            deploy::Deployments::load_from_path(&config.home_manager_state_path())
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to load HomeManager deployments in {}",
-                        config.home_manager_state_path()
-                    )
-                })?
-        } else {
-            deploy::Deployments::load_from_path(&config.nixos_state_path())
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to load NixOS deployments in {}",
-                        config.nixos_state_path()
-                    )
-                })?
-        };
+        let deployments = deploy::Deployments::load_from_path(&config.actual_state_path()).await?;
 
         let current_commits = git.sync_and_get_commits(config).await?;
         debug!("Commits loaded {:?}", current_commits);
@@ -389,7 +371,7 @@ mod tests {
         repo.add_tag("prod", c1).unwrap();
 
         let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
@@ -454,7 +436,7 @@ mod tests {
         repo.add_tag("prod", c1).unwrap();
 
         let config = make_home_manager_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
@@ -519,7 +501,7 @@ mod tests {
         repo.add_tag("test", c1).unwrap();
 
         let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
@@ -587,7 +569,7 @@ mod tests {
         let c1 = repo.add_commit().unwrap();
 
         let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
@@ -661,7 +643,7 @@ mod tests {
         repo.add_tag("prod", c1).unwrap();
 
         let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
@@ -749,7 +731,7 @@ mod tests {
         repo.add_tag("prod", c1).unwrap();
 
         let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
@@ -851,7 +833,7 @@ mod tests {
         repo.add_tag("test", c1).unwrap();
 
         let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
@@ -926,7 +908,7 @@ mod tests {
         repo.add_tag("prod", c1).unwrap();
 
         let config = make_pullix_config(repo.path(), &app_dir);
-        let git = Git::new();
+        let git = Git::default();
         let meter = global::meter("pullix");
         let last_commit_metric = LastCommitMetric::new(&meter);
         let remote_state = RemoteStateMetric::new(&meter);
