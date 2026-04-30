@@ -46,6 +46,52 @@ Then configure the service:
 }
 ```
 
+## How to use in your Home Manager flake
+
+Pullix also ships a Home Manager module (`homeManagerModules.default`) that runs as a user systemd service and triggers `home-manager switch` instead of a NixOS rebuild.
+
+```flake.nix
+{
+  inputs = {
+    pullix.url = "github:scarisey/pullix";
+    home-manager.url = "github:nix-community/home-manager";
+  };
+}
+```
+
+Import the module in your Home Manager configuration:
+
+```home.nix
+{inputs, ...}: {
+  imports = [
+    inputs.pullix.homeManagerModules.default
+  ];
+}
+```
+
+Then configure the service:
+
+```home.nix
+{config, inputs, ...}: {
+  services.pullix = {
+    enable = true;
+    hostname = "foo";
+    pollIntervalSecs = 60;
+    flakeRepo = {
+      type = "GitHub";
+      repo = "scarisey/home-dotfiles";
+      prodSpec = {
+        ref = "main";
+      };
+    };
+    homeManager = {
+      username = config.home.username;
+    };
+    environmentFile = config.sops.secrets."pullix_env".path;
+  };
+}
+```
+
 ## What Pullix does
 
 Pullix is a pull-based deployment daemon that periodically polls a remote Git repository and deploys NixOS configurations automatically. Here is how it works:
@@ -151,9 +197,10 @@ Pullix is a pull-based deployment daemon that periodically polls a remote Git re
 
 - **Type:** `null` or `path`
 - **Default:** `null`
-- **Description:** Path to an additional environment file to source for the Pullix systemd service. Useful for passing secrets such as Nix access tokens without storing them in the Nix store. Example content:
+- **Description:** Path to an additional environment file to source for the Pullix systemd service. Useful for passing secrets without storing them in the Nix store. For private GitHub HTTPS repositories, set `GITHUB_TOKEN` (or `GH_TOKEN`) so Pullix can authenticate git fetches. `NIX_CONFIG` access-tokens cover `nix` commands; `GITHUB_TOKEN` covers the underlying `git2` fetches. Example content:
 
   ```
+  GITHUB_TOKEN=ghp_xxx
   NIX_CONFIG=access-tokens = github.com=ghp_xxx
   ```
 
@@ -186,3 +233,52 @@ Pullix is a pull-based deployment daemon that periodically polls a remote Git re
 - **Type:** `bool`
 - **Default:** `false`
 - **Description:** When enabled, sets `RUST_LOG=DEBUG` in the service environment, making logs very verbose. Useful for troubleshooting deployment issues.
+
+### `services.pullix.keepLast`
+
+- **Type:** `int`
+- **Default:** `100`
+- **Description:** Number of past deployments to retain in the internal state history file. Older entries are trimmed automatically.
+
+## Home Manager module options reference
+
+The Home Manager module (`homeManagerModules.default`) exposes the same options as the NixOS module with the following differences and additions.
+
+**Different defaults:**
+
+| Option | NixOS default | Home Manager default |
+|---|---|---|
+| `appDir` | `/var/lib/pullix` | `${config.xdg.configHome}/pullix` |
+| `hostname` | `config.networking.hostName` | *(required)* — used for `homeConfigurations.<hostname>` lookup |
+
+**What it does differently:** instead of running `nixos-rebuild`, it runs `home-manager switch` using the configured flake. The service runs as a user systemd unit (`systemd.user.services.pullix`).
+
+### `services.pullix.homeManager`
+
+- **Type:** attribute set (submodule)
+- **Default:** `{}`
+- **Description:** Home Manager-specific configuration.
+
+#### `services.pullix.homeManager.username`
+
+- **Type:** `str`
+- **Default:** `config.home.username`
+- **Description:** Username to use for the `home-manager switch` invocation and to own the Pullix state directory.
+
+#### `services.pullix.homeManager.group`
+
+- **Type:** `str`
+- **Default:** `config.home.username`
+- **Description:** Group to use for the Pullix state directory.
+
+#### `services.pullix.homeManager.package`
+
+- **Type:** `package`
+- **Default:** `config.programs.home-manager.package`
+- **Description:** The `home-manager` package to invoke. Pullix wraps it with the correct `PATH` so all required tools (`nix`, `git`, `tar`, …) are available.
+
+#### `services.pullix.homeManager.nixBinPath`
+
+- **Type:** `list of path`
+- **Default:** `["/nix/var/nix/profiles/default/bin" "/run/current-system/sw/bin"]`
+- **Description:** Extra directories prepended to `PATH` when invoking `home-manager`, so that the correct `nix` binary is found even in a standalone Home Manager setup.
