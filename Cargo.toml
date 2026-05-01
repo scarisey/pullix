@@ -12,6 +12,7 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-opentelemetry = "0.31"
 git2 = { version = "0.20.3", features = ["https", "ssh"] }
 tempfile = "3.24.0"
 gethostname = "1.1.0"
