@@ -60,8 +60,8 @@ async fn main() -> Result<()> {
             .inspect_err(|e| eprint!("{e}"))?
         }
         None => {
-            let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::HomeManager);
-            let remote_state = RemoteStateMetric::new(&meter, DeploymentType::HomeManager);
+            let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+            let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
             run_pullix(
                 &config,
                 &git,
