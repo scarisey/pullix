@@ -229,14 +229,26 @@ impl ShouldDeploy {
                 commit,
             } => {
                 flake_test.update_rev(commit);
-                ShouldDeploy::execute_deployment(deployments, &flake_test, config, nix_commands_for_test).await
+                ShouldDeploy::execute_deployment(
+                    deployments,
+                    &flake_test,
+                    config,
+                    nix_commands_for_test,
+                )
+                .await
             }
             ShouldDeploy::ToProd {
                 deployments,
                 commit,
             } => {
                 flake_prod.update_rev(commit);
-                ShouldDeploy::execute_deployment(deployments, &flake_prod, config, nix_commands_for_prod).await
+                ShouldDeploy::execute_deployment(
+                    deployments,
+                    &flake_prod,
+                    config,
+                    nix_commands_for_prod,
+                )
+                .await
             }
         }
     }

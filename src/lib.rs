@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::{
     config::Config,
     git::Git,
-    metrics::{LastCommitMetric, RemoteStateMetric},
+    metrics::{DeploymentType, LastCommitMetric, RemoteStateMetric},
     nix_commands::NixCommands,
 };
 use anyhow::{Context, Result};
@@ -373,8 +373,8 @@ mod tests {
         let config = make_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -438,8 +438,8 @@ mod tests {
         let config = make_home_manager_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -503,8 +503,8 @@ mod tests {
         let config = make_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -571,8 +571,8 @@ mod tests {
         let config = make_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -645,8 +645,8 @@ mod tests {
         let config = make_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -733,8 +733,8 @@ mod tests {
         let config = make_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
 
         // Test channel uses the togglable mock (starts as FAIL)
         let nix_test = Arc::new(NixTestTogglable::new(false));
@@ -835,8 +835,8 @@ mod tests {
         let config = make_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
@@ -910,8 +910,8 @@ mod tests {
         let config = make_pullix_config(repo.path(), &app_dir);
         let git = Git::default();
         let meter = global::meter("pullix");
-        let last_commit_metric = LastCommitMetric::new(&meter);
-        let remote_state = RemoteStateMetric::new(&meter);
+        let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
+        let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
         let nix_test = Arc::new(NixTestTogglable::new(true));
         let nix_prod = Arc::new(NixTestTogglable::new(true));
         let ref_test = nix_test.clone();
