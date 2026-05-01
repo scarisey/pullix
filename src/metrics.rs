@@ -1,17 +1,30 @@
+use derive_more::Display;
 use opentelemetry::{KeyValue, global};
-use opentelemetry_otlp::{WithExportConfig, SpanExporter};
+use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider, trace::SdkTracerProvider};
 
 use crate::{config::Config, deploy::Deployed, git::Commit};
 
-pub struct RemoteStateMetric(opentelemetry::metrics::Gauge<i64>);
+#[derive(Display)]
+pub enum DeploymentType {
+    HomeManager,
+    NixOS,
+}
+
+pub struct RemoteStateMetric {
+    gauge: opentelemetry::metrics::Gauge<i64>,
+    deployment_type: DeploymentType,
+}
 impl RemoteStateMetric {
-    pub fn new(meter: &opentelemetry::metrics::Meter) -> Self {
+    pub fn new(meter: &opentelemetry::metrics::Meter, deployment_type: DeploymentType) -> Self {
         let gauge = meter
             .i64_gauge("pullix_remote_state")
             .with_description("Get the remote state of the git repository.")
             .build();
-        RemoteStateMetric(gauge)
+        RemoteStateMetric {
+            gauge,
+            deployment_type,
+        }
     }
     pub fn set(
         &self,
@@ -27,20 +40,27 @@ impl RemoteStateMetric {
             test_commit
                 .map(|c| KeyValue::new("test_commit", c.to_string()))
                 .unwrap_or(KeyValue::new("test_commit", "unknown")),
+            KeyValue::new("deployment_type", self.deployment_type.to_string()),
         ];
-        self.0.record(1, &labels);
+        self.gauge.record(1, &labels);
     }
 }
 
-pub struct LastCommitMetric(opentelemetry::metrics::Gauge<i64>);
+pub struct LastCommitMetric {
+    gauge: opentelemetry::metrics::Gauge<i64>,
+    deployment_type: DeploymentType,
+}
 
 impl LastCommitMetric {
-    pub fn new(meter: &opentelemetry::metrics::Meter) -> Self {
+    pub fn new(meter: &opentelemetry::metrics::Meter, deployment_type: DeploymentType) -> Self {
         let gauge = meter
             .i64_gauge("pullix_last_deployment")
             .with_description("Get the last commit deployed to the host.")
             .build();
-        LastCommitMetric(gauge)
+        LastCommitMetric {
+            gauge,
+            deployment_type,
+        }
     }
     pub fn set(&self, commit: &Deployed) {
         let labels = match commit {
@@ -48,21 +68,25 @@ impl LastCommitMetric {
             Deployed::TestAligned(commit) => vec![
                 KeyValue::new("deployed", "test"),
                 KeyValue::new("commit", commit.to_string()),
+                KeyValue::new("deployment_type", self.deployment_type.to_string()),
             ],
             Deployed::ProdAligned(commit) => vec![
                 KeyValue::new("deployed", "prod"),
                 KeyValue::new("commit", commit.to_string()),
+                KeyValue::new("deployment_type", self.deployment_type.to_string()),
             ],
             Deployed::TestFailed(commit) => vec![
                 KeyValue::new("deployed", "fail"),
                 KeyValue::new("commit", commit.to_string()),
+                KeyValue::new("deployment_type", self.deployment_type.to_string()),
             ],
             Deployed::ProdFailed(commit) => vec![
                 KeyValue::new("deployed", "fail"),
                 KeyValue::new("commit", commit.to_string()),
+                KeyValue::new("deployment_type", self.deployment_type.to_string()),
             ],
         };
-        self.0.record(1, &labels);
+        self.gauge.record(1, &labels);
     }
 }
 

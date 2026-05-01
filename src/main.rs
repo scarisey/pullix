@@ -3,7 +3,7 @@ use opentelemetry::{global, metrics::MeterProvider};
 use pullix::{
     config::Config,
     git::Git,
-    metrics::{LastCommitMetric, RemoteStateMetric, setup_otel},
+    metrics::{DeploymentType, LastCommitMetric, RemoteStateMetric, setup_otel},
     *,
 };
 use tracing::{Level, debug, span};
@@ -43,12 +43,11 @@ async fn main() -> Result<()> {
         .map(|meter_provider| meter_provider.meter("pullix"))
         .unwrap_or(global::meter("pullix"));
 
-    let last_commit_metric = LastCommitMetric::new(&meter);
-    let remote_state = RemoteStateMetric::new(&meter);
-
     match &config.home_manager {
         Some(hm_config) => {
             let nix_cmd = nix_commands::HomeManagerSwitch::new(hm_config);
+            let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::HomeManager);
+            let remote_state = RemoteStateMetric::new(&meter, DeploymentType::HomeManager);
             run_pullix(
                 &config,
                 &git,
@@ -60,16 +59,20 @@ async fn main() -> Result<()> {
             .await
             .inspect_err(|e| eprint!("{e}"))?
         }
-        None => run_pullix(
-            &config,
-            &git,
-            &nix_commands::Test,
-            &nix_commands::Prod,
-            last_commit_metric,
-            remote_state,
-        )
-        .await
-        .inspect_err(|e| eprint!("{e}"))?,
+        None => {
+            let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::HomeManager);
+            let remote_state = RemoteStateMetric::new(&meter, DeploymentType::HomeManager);
+            run_pullix(
+                &config,
+                &git,
+                &nix_commands::Test,
+                &nix_commands::Prod,
+                last_commit_metric,
+                remote_state,
+            )
+            .await
+            .inspect_err(|e| eprint!("{e}"))?
+        }
     };
 
     meter_provider.inspect(|provider| {
