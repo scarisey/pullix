@@ -1,6 +1,6 @@
 use opentelemetry::{KeyValue, global};
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider};
+use opentelemetry_otlp::{WithExportConfig, SpanExporter};
+use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider, trace::SdkTracerProvider};
 
 use crate::{config::Config, deploy::Deployed, git::Commit};
 
@@ -68,8 +68,23 @@ impl LastCommitMetric {
 
 pub fn setup_otel(config: &Config) -> Option<SdkMeterProvider> {
     config.otel_http_endpoint.as_ref().and_then(|endpoint| {
+        let resource = Resource::builder().with_service_name("pullix").build();
+
+        // Set up trace exporter
+        let span_exporter = SpanExporter::builder()
+            .with_http()
+            .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+            .with_endpoint(endpoint)
+            .build()
+            .ok()?;
+        let tracer_provider = SdkTracerProvider::builder()
+            .with_simple_exporter(span_exporter)
+            .with_resource(resource.clone())
+            .build();
+        global::set_tracer_provider(tracer_provider);
+
         // Initialize OTLP exporter using HTTP binary protocol
-        let exporter = opentelemetry_otlp::MetricExporter::builder()
+        let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
             .with_http()
             .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
             .with_endpoint(endpoint)
@@ -78,8 +93,8 @@ pub fn setup_otel(config: &Config) -> Option<SdkMeterProvider> {
             .ok()?;
         // Create a meter provider with the OTLP Metric exporter
         let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-            .with_periodic_exporter(exporter)
-            .with_resource(Resource::builder().with_service_name("pullix").build())
+            .with_periodic_exporter(metric_exporter)
+            .with_resource(resource)
             .build();
         global::set_meter_provider(meter_provider.clone());
         Some(meter_provider)
