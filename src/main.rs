@@ -18,7 +18,11 @@ async fn main() -> Result<()> {
     let meter_provider = setup_otel(&config);
 
     if config.otel_http_endpoint.is_some() {
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+        
         tracing_subscriber::registry()
+            .with(env_filter)
             .with(
                 tracing_subscriber::fmt::layer()
                     .with_target(true)
