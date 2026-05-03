@@ -4,6 +4,7 @@ use pullix::{
     config::Config,
     git::Git,
     metrics::{DeploymentType, LastCommitMetric, RemoteStateMetric, setup_otel},
+    systemd::{SystemdServiceHandler, SystemdUserServiceHandler},
     *,
 };
 use tracing::{Level, debug, span};
@@ -20,7 +21,7 @@ async fn main() -> Result<()> {
     if config.otel_http_endpoint.is_some() {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
-        
+
         tracing_subscriber::registry()
             .with(env_filter)
             .with(
@@ -52,11 +53,13 @@ async fn main() -> Result<()> {
             let nix_cmd = nix_commands::HomeManagerSwitch::new(hm_config);
             let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::HomeManager);
             let remote_state = RemoteStateMetric::new(&meter, DeploymentType::HomeManager);
+            let service_handler = SystemdUserServiceHandler;
             run_pullix(
                 &config,
                 &git,
                 &nix_cmd,
                 &nix_cmd,
+                &service_handler,
                 last_commit_metric,
                 remote_state,
             )
@@ -66,11 +69,13 @@ async fn main() -> Result<()> {
         None => {
             let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
             let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
+            let service_handler = SystemdServiceHandler;
             run_pullix(
                 &config,
                 &git,
                 &nix_commands::Test,
                 &nix_commands::Prod,
+                &service_handler,
                 last_commit_metric,
                 remote_state,
             )
