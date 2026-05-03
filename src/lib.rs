@@ -5,10 +5,11 @@ use std::time::Duration;
 use crate::{
     config::Config,
     git::Git,
-    metrics::{DeploymentType, LastCommitMetric, RemoteStateMetric},
+    metrics::{LastCommitMetric, RemoteStateMetric},
     nix_commands::NixCommands,
+    systemd::ServiceHandler,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tokio::time::sleep;
 use tracing::{Level, debug, span};
 
@@ -18,12 +19,14 @@ pub mod flake;
 pub mod git;
 pub mod metrics;
 pub mod nix_commands;
+pub mod systemd;
 
 pub async fn run_pullix(
     config: &Config,
     git: &Git,
     nix_commands_for_test: &impl NixCommands,
     nix_commands_for_prod: &impl NixCommands,
+    service_handler: &impl ServiceHandler,
     last_commit_metric: LastCommitMetric,
     remote_state: RemoteStateMetric,
 ) -> Result<()> {
@@ -59,7 +62,7 @@ pub async fn run_pullix(
         let mut next_action = deployments.should_deploy(&current_commits);
         debug!("Next action for {:?}", next_action);
         next_action
-            .run(config, nix_commands_for_test, nix_commands_for_prod)
+            .run(config, nix_commands_for_test, nix_commands_for_prod, service_handler)
             .await?;
 
         if let Some(deployed) = next_action.deployments().and_then(|x| x.last_deployment()) {
@@ -79,6 +82,7 @@ mod tests {
     use crate::config::{ConfigFlake, HomeManagerConfig, UrlSpecConfig};
     use crate::flake::{FlakeRef, FlakeType};
     use crate::nix_commands::NixCommandError;
+    use crate::metrics::DeploymentType;
 
     use super::*;
     use crate::config::tests::make_config;
@@ -255,6 +259,22 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
+    //  Mock ServiceHandler
+    // ---------------------------------------------------------------
+
+    struct MockServiceHandler;
+
+    impl ServiceHandler for MockServiceHandler {
+        fn is_service_changed(&self, _service_name: &str) -> Result<bool> {
+            Ok(false)
+        }
+
+        fn restart_self(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    // ---------------------------------------------------------------
     //  Shared helpers
     // ---------------------------------------------------------------
 
@@ -389,6 +409,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )
@@ -454,6 +475,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )
@@ -519,6 +541,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )
@@ -587,6 +610,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )
@@ -661,6 +685,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )
@@ -751,6 +776,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )
@@ -851,6 +877,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )
@@ -926,6 +953,7 @@ mod tests {
                         &git,
                         ref_test.as_ref(),
                         ref_prod.as_ref(),
+                        &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
                     )

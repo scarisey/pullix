@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use tracing::debug;
 
 use crate::{
-    config::{Config, PrivateKey},
+    config::Config,
     flake::FlakeRef,
 };
 
