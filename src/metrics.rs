@@ -90,7 +90,7 @@ impl LastCommitMetric {
     }
 }
 
-pub fn setup_otel(config: &Config) -> Option<SdkMeterProvider> {
+pub fn setup_otel(config: &Config) -> Option<(SdkTracerProvider, SdkMeterProvider)> {
     config.otel_http_endpoint.as_ref().and_then(|endpoint| {
         let resource = Resource::builder().with_service_name("pullix").build();
 
@@ -98,20 +98,20 @@ pub fn setup_otel(config: &Config) -> Option<SdkMeterProvider> {
         let span_exporter = SpanExporter::builder()
             .with_http()
             .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-            .with_endpoint(endpoint)
+            .with_endpoint(format!("${}/v1/traces", endpoint))
             .build()
             .ok()?;
         let tracer_provider = SdkTracerProvider::builder()
             .with_simple_exporter(span_exporter)
             .with_resource(resource.clone())
             .build();
-        global::set_tracer_provider(tracer_provider);
+        global::set_tracer_provider(tracer_provider.clone());
 
         // Initialize OTLP exporter using HTTP binary protocol
         let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
             .with_http()
             .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-            .with_endpoint(endpoint)
+            .with_endpoint(format!("${}/v1/metrics", endpoint))
             .with_temporality(opentelemetry_sdk::metrics::Temporality::Delta)
             .build()
             .ok()?;
@@ -121,6 +121,6 @@ pub fn setup_otel(config: &Config) -> Option<SdkMeterProvider> {
             .with_resource(resource)
             .build();
         global::set_meter_provider(meter_provider.clone());
-        Some(meter_provider)
+        Some((tracer_provider, meter_provider))
     })
 }

@@ -35,7 +35,7 @@ pub struct Config {
     pub app_dir: String,
     #[serde(default = "linux_hostname")]
     pub hostname: String,
-    #[serde(default = "no_prometheus_endpoint")]
+    #[serde(default = "no_otel_endpoint")]
     pub otel_http_endpoint: Option<String>,
     #[serde(default = "no_private_key")]
     pub private_key: Option<PrivateKey>,
@@ -80,7 +80,7 @@ fn no_github_token() -> Option<String> {
 fn no_private_key() -> Option<PrivateKey> {
     None
 }
-fn no_prometheus_endpoint() -> Option<String> {
+fn no_otel_endpoint() -> Option<String> {
     None
 }
 
@@ -153,7 +153,7 @@ pub mod tests {
             poll_interval_secs: default_poll_interval(),
             app_dir: app_dir.to_string(),
             hostname: "foo".to_string(),
-            otel_http_endpoint: no_prometheus_endpoint(),
+            otel_http_endpoint: no_otel_endpoint(),
             private_key: None,
             keep_last: 100,
             home_manager: None,

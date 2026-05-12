@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
     let config = Config::load_from_path(&config_path)
         .with_context(|| format!("Failed to load config from {}", config_path))?;
 
-    let meter_provider = setup_otel(&config);
+    let (tracer_provider, meter_provider) = setup_otel(&config).unzip();
 
     if config.otel_http_endpoint.is_some() {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -85,6 +85,9 @@ async fn main() -> Result<()> {
     };
 
     meter_provider.inspect(|provider| {
+        let _ = provider.shutdown();
+    });
+    tracer_provider.inspect(|provider| {
         let _ = provider.shutdown();
     });
     debug!("Pullix run completed successfully.");
