@@ -5,8 +5,8 @@ use std::time::Duration;
 use crate::{
     config::Config,
     git::Git,
-    metrics::{LastCommitMetric, RemoteStateMetric},
     nix_commands::NixCommands,
+    observability::{LastCommitMetric, RemoteStateMetric},
     systemd::ServiceHandler,
 };
 use anyhow::Result;
@@ -17,8 +17,8 @@ pub mod config;
 pub mod deploy;
 pub mod flake;
 pub mod git;
-pub mod metrics;
 pub mod nix_commands;
+pub mod observability;
 pub mod systemd;
 
 pub async fn run_pullix(
@@ -32,7 +32,7 @@ pub async fn run_pullix(
 ) -> Result<()> {
     let mut elapsed_secs = config.poll_interval_secs;
     loop {
-        let _loop = span!(Level::TRACE, "loop");
+        let _loop = span!(Level::INFO, "loop_iteration");
         let _loop_span = _loop.enter();
         debug!("Enter loop");
         let delay = config.poll_interval_secs.saturating_sub(elapsed_secs);
@@ -62,7 +62,12 @@ pub async fn run_pullix(
         let mut next_action = deployments.should_deploy(&current_commits);
         debug!("Next action for {:?}", next_action);
         next_action
-            .run(config, nix_commands_for_test, nix_commands_for_prod, service_handler)
+            .run(
+                config,
+                nix_commands_for_test,
+                nix_commands_for_prod,
+                service_handler,
+            )
             .await?;
 
         if let Some(deployed) = next_action.deployments().and_then(|x| x.last_deployment()) {
@@ -82,7 +87,7 @@ mod tests {
     use crate::config::{ConfigFlake, HomeManagerConfig, UrlSpecConfig};
     use crate::flake::{FlakeRef, FlakeType};
     use crate::nix_commands::NixCommandError;
-    use crate::metrics::DeploymentType;
+    use crate::observability::DeploymentType;
 
     use super::*;
     use crate::config::tests::make_config;
