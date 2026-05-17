@@ -58,7 +58,7 @@ impl PrivateKey {
         let pass = std::fs::read_to_string(&self.passphrase_path).with_context(|| {
             format!(
                 "Unable to retrieve passphrase for {}",
-                &self.passphrase_path
+                self.passphrase_path
             )
         })?;
         self.passphrase = pass;

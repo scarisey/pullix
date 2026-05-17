@@ -91,7 +91,7 @@ impl NixCommands for HomeManagerSwitch {
             flake_ref,
             hostname,
             &self.config.username,
-            format!("{}/bin/home-manager", &self.config.package).as_str(),
+            format!("{}/bin/home-manager", self.config.package).as_str(),
         )
         .await
     }
@@ -112,7 +112,7 @@ async fn home_manager_switch(
         .args([
             "switch",
             "--flake",
-            &format!("{}#{}@{}", &flake_url, username, hostname),
+            &format!("{}#{}@{}", flake_url, username, hostname),
         ])
         .output()
         .await
@@ -151,7 +151,7 @@ async fn deploy(
             "build",
             &format!(
                 "{}#nixosConfigurations.{}.config.system.build.toplevel",
-                &flake_url, hostname
+                flake_url, hostname
             ),
             "--print-out-paths",
         ])

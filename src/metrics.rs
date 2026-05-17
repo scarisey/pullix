@@ -1,9 +1,16 @@
+use std::time::Duration;
+
 use derive_more::Display;
 use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
-use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider, trace::SdkTracerProvider};
+use opentelemetry_sdk::{
+    Resource,
+    metrics::{PeriodicReader, SdkMeterProvider},
+    trace::SdkTracerProvider,
+};
 
 use crate::{config::Config, deploy::Deployed, git::Commit};
+use anyhow::Result;
 
 #[derive(Display)]
 pub enum DeploymentType {
@@ -90,37 +97,40 @@ impl LastCommitMetric {
     }
 }
 
-pub fn setup_otel(config: &Config) -> Option<(SdkTracerProvider, SdkMeterProvider)> {
-    config.otel_http_endpoint.as_ref().and_then(|endpoint| {
-        let resource = Resource::builder().with_service_name("pullix").build();
+pub fn setup_otel(config: &Config) -> Result<(SdkTracerProvider, SdkMeterProvider)> {
+    let endpoint = config
+        .otel_http_endpoint
+        .as_ref()
+        .ok_or(anyhow::anyhow!("Otel endpoint not provided."))?;
+    let resource = Resource::builder().with_service_name("pullix").build();
 
-        // Set up trace exporter
-        let span_exporter = SpanExporter::builder()
-            .with_http()
-            .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-            .with_endpoint(format!("${}/v1/traces", endpoint))
-            .build()
-            .ok()?;
-        let tracer_provider = SdkTracerProvider::builder()
-            .with_simple_exporter(span_exporter)
-            .with_resource(resource.clone())
-            .build();
-        global::set_tracer_provider(tracer_provider.clone());
+    // Set up trace exporter
+    let span_exporter = SpanExporter::builder()
+        .with_http()
+        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+        .with_endpoint(format!("{}/v1/traces", endpoint))
+        .build()?;
+    let tracer_provider = SdkTracerProvider::builder()
+        .with_simple_exporter(span_exporter)
+        .with_resource(resource.clone())
+        .build();
+    global::set_tracer_provider(tracer_provider.clone());
 
-        // Initialize OTLP exporter using HTTP binary protocol
-        let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-            .with_http()
-            .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-            .with_endpoint(format!("${}/v1/metrics", endpoint))
-            .with_temporality(opentelemetry_sdk::metrics::Temporality::Delta)
-            .build()
-            .ok()?;
-        // Create a meter provider with the OTLP Metric exporter
-        let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-            .with_periodic_exporter(metric_exporter)
-            .with_resource(resource)
-            .build();
-        global::set_meter_provider(meter_provider.clone());
-        Some((tracer_provider, meter_provider))
-    })
+    // Initialize OTLP exporter using HTTP binary protocol
+    let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_http()
+        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+        .with_endpoint(format!("{}/v1/metrics", endpoint))
+        .with_temporality(opentelemetry_sdk::metrics::Temporality::Delta)
+        .build()?;
+    let periodic_reader = PeriodicReader::builder(metric_exporter)
+        .with_interval(Duration::from_secs(config.poll_interval_secs))
+        .build();
+    // Create a meter provider with the OTLP Metric exporter
+    let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+        .with_reader(periodic_reader)
+        .with_resource(resource)
+        .build();
+    global::set_meter_provider(meter_provider.clone());
+    Ok((tracer_provider, meter_provider))
 }
