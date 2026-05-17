@@ -1,14 +1,13 @@
 use anyhow::{Context, Result};
-use opentelemetry::{global, metrics::MeterProvider};
+use opentelemetry::global;
 use pullix::{
     config::Config,
     git::Git,
-    metrics::{DeploymentType, LastCommitMetric, RemoteStateMetric, setup_otel},
+    observability::{DeploymentType, LastCommitMetric, RemoteStateMetric, setup},
     systemd::{SystemdServiceHandler, SystemdUserServiceHandler},
     *,
 };
-use tracing::{Level, debug, span};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::debug;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,37 +15,18 @@ async fn main() -> Result<()> {
     let config = Config::load_from_path(&config_path)
         .with_context(|| format!("Failed to load config from {}", config_path))?;
 
-    let (tracer_provider, meter_provider) = setup_otel(&config).unzip();
+    let (tracer_provider, meter_provider) = setup(&config)
+        .inspect_err(|err| {
+            println!("Failed to setup OTEL: {}", err);
+        })
+        .ok()
+        .unzip();
 
-    if config.otel_http_endpoint.is_some() {
-        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    let meter = global::meter("pullix");
 
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_target(true)
-                    .with_thread_ids(true)
-                    .with_file(true)
-                    .with_line_number(true),
-            )
-            .with(tracing_opentelemetry::layer())
-            .init();
-    } else {
-        tracing_subscriber::fmt::init();
-    }
-
-    let root = span!(Level::TRACE, "pullix_start");
-    let _ = root.enter();
     debug!("Pullix starting...");
 
     let git = Git::new()?;
-
-    let meter = meter_provider
-        .as_ref()
-        .map(|meter_provider| meter_provider.meter("pullix"))
-        .unwrap_or(global::meter("pullix"));
 
     match &config.home_manager {
         Some(hm_config) => {

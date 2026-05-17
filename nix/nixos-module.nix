@@ -1,10 +1,12 @@
-{self}: {
+{ self }:
+{
   config,
   lib,
   pkgs,
   ...
 }:
-with lib; let
+with lib;
+let
   cfg = config.services.pullix;
 
   urlSpecConfig = types.submodule {
@@ -81,25 +83,27 @@ with lib; let
     };
   };
 
-  configFormat = pkgs.formats.toml {};
+  configFormat = pkgs.formats.toml { };
 
-  urlSpecToToml = urlSpec:
-    if urlSpec != null
-    then
+  urlSpecToToml =
+    urlSpec:
+    if urlSpec != null then
       (filterAttrs (n: v: v != null) {
         inherit (urlSpec) ref rev;
       })
-    else null;
+    else
+      null;
 
-  flakeRepoToToml = flakeRepo:
-    if flakeRepo != null
-    then
+  flakeRepoToToml =
+    flakeRepo:
+    if flakeRepo != null then
       (filterAttrs (n: v: v != null) {
         inherit (flakeRepo) type repo host;
         prod_spec = urlSpecToToml flakeRepo.prodSpec;
         test_spec = urlSpecToToml flakeRepo.testSpec;
       })
-    else null;
+    else
+      null;
 
   configFile = configFormat.generate "pullix-config.toml" (
     filterAttrs (n: v: v != null) {
@@ -112,7 +116,8 @@ with lib; let
       keep_last = cfg.keepLast;
     }
   );
-in {
+in
+{
   options.services.pullix = {
     enable = mkEnableOption "Pullix deployment service";
 
@@ -210,9 +215,9 @@ in {
 
     systemd.services.pullix = {
       description = "Pullix deployment service";
-      wantedBy = ["multi-user.target"];
-      after = ["network-online.target"];
-      wants = ["network-online.target"];
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
       # Prevent nixos-rebuild from restarting this service during switch
       reloadIfChanged = false;
       restartIfChanged = false;
@@ -236,7 +241,8 @@ in {
         }
         config.nix.envVars
         config.networking.proxy.envVars
-        (mkIf cfg.verbose_logs {RUST_LOG = "DEBUG";})
+        (mkIf cfg.verbose_logs { RUST_LOG = "DEBUG"; })
+        (mkIf (!cfg.verbose_logs) { RUST_LOG = "INFO"; })
       ];
 
       serviceConfig = {

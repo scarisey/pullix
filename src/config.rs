@@ -56,10 +56,7 @@ pub struct PrivateKey {
 impl PrivateKey {
     fn setup(&mut self) -> Result<()> {
         let pass = std::fs::read_to_string(&self.passphrase_path).with_context(|| {
-            format!(
-                "Unable to retrieve passphrase for {}",
-                &self.passphrase_path
-            )
+            format!("Unable to retrieve passphrase for {}", self.passphrase_path)
         })?;
         self.passphrase = pass;
         Ok(())

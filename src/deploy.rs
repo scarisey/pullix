@@ -198,7 +198,7 @@ impl ShouldDeploy {
             deployments
                 .save_to_path(&config.actual_state_path(), config.keep_last)
                 .await?;
-            
+
             // Check if the pullix service itself has changed
             if let Ok(service_changed) = service_handler.is_service_changed("pullix") {
                 if service_changed {
@@ -207,9 +207,11 @@ impl ShouldDeploy {
                     service_handler.restart_self()?;
                 }
             } else {
-                info!("Could not check if service changed (systemctl might not be available or service doesn't exist)");
+                info!(
+                    "Could not check if service changed (systemctl might not be available or service doesn't exist)"
+                );
             }
-            
+
             let last_deployed = deployments.last_deployment();
             Ok(last_deployed)
         }
@@ -600,7 +602,9 @@ mod tests {
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
         let mut should_deploy = deployments.should_deploy(&current);
-        let last_deployed = should_deploy.run(&config, &NixTestOk, &NixTestOk, &MockServiceHandler).await;
+        let last_deployed = should_deploy
+            .run(&config, &NixTestOk, &NixTestOk, &MockServiceHandler)
+            .await;
 
         assert!(matches!(last_deployed, Ok(Some(Deployed::ProdAligned(_)))));
 
@@ -628,7 +632,9 @@ mod tests {
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
         let mut should_deploy = deployments.should_deploy(&current);
-        let last_deployed = should_deploy.run(&config, &NixTestOk, &NixTestKo, &MockServiceHandler).await;
+        let last_deployed = should_deploy
+            .run(&config, &NixTestOk, &NixTestKo, &MockServiceHandler)
+            .await;
 
         assert!(
             matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))),
@@ -662,14 +668,18 @@ mod tests {
         let mut should_deploy = deployments.should_deploy(&current);
 
         // Run the first failed deployment
-        let last_deployed = should_deploy.run(&config, &NixTestKo, &NixTestKo, &MockServiceHandler).await;
+        let last_deployed = should_deploy
+            .run(&config, &NixTestKo, &NixTestKo, &MockServiceHandler)
+            .await;
         assert!(
             matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))),
             "last_deployed is {last_deployed:?}"
         );
 
         // Run the second failed deployment to check that last_report.json is recreated
-        let last_deployed = should_deploy.run(&config, &NixTestKo, &NixTestKo, &MockServiceHandler).await;
+        let last_deployed = should_deploy
+            .run(&config, &NixTestKo, &NixTestKo, &MockServiceHandler)
+            .await;
         assert!(
             matches!(last_deployed, Ok(Some(Deployed::ProdFailed(_)))),
             "last_deployed is {last_deployed:?}"
@@ -697,7 +707,9 @@ mod tests {
         };
         let current = make_latest_commits_prod_last("test123", "prod456");
         let mut should_deploy = deployments.should_deploy(&current);
-        let last_deployed = should_deploy.run(&config, &NixTestOk, &NixTestKo, &MockServiceHandler).await;
+        let last_deployed = should_deploy
+            .run(&config, &NixTestOk, &NixTestKo, &MockServiceHandler)
+            .await;
 
         assert!(matches!(last_deployed, Ok(None)));
 
