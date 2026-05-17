@@ -6,10 +6,7 @@ use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 use tracing::debug;
 
-use crate::{
-    config::Config,
-    flake::FlakeRef,
-};
+use crate::{config::Config, flake::FlakeRef};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commit(String);
@@ -165,7 +162,7 @@ impl Git {
         debug!("Fetching");
         remote
             .fetch(&["+refs/*:refs/*"], Some(&mut fetch_options), None)
-            .with_context(|| format!("Failed to fetch from remote url: {}", &url))?;
+            .with_context(|| format!("Failed to fetch from remote url: {}", url))?;
         Ok(())
     }
 

@@ -62,7 +62,12 @@ pub async fn run_pullix(
         let mut next_action = deployments.should_deploy(&current_commits);
         debug!("Next action for {:?}", next_action);
         next_action
-            .run(config, nix_commands_for_test, nix_commands_for_prod, service_handler)
+            .run(
+                config,
+                nix_commands_for_test,
+                nix_commands_for_prod,
+                service_handler,
+            )
             .await?;
 
         if let Some(deployed) = next_action.deployments().and_then(|x| x.last_deployment()) {
@@ -81,8 +86,8 @@ mod tests {
 
     use crate::config::{ConfigFlake, HomeManagerConfig, UrlSpecConfig};
     use crate::flake::{FlakeRef, FlakeType};
-    use crate::nix_commands::NixCommandError;
     use crate::metrics::DeploymentType;
+    use crate::nix_commands::NixCommandError;
 
     use super::*;
     use crate::config::tests::make_config;
