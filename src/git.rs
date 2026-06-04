@@ -153,7 +153,7 @@ impl Git {
         let local_tags: Vec<String> = repo
             .tag_names(None)?
             .iter()
-            .filter_map(|name| name.map(String::from))
+            .filter_map(|name| name.ok().flatten().map(String::from))
             .collect();
         for tag_name in &local_tags {
             repo.tag_delete(tag_name)?;
