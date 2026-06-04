@@ -1,10 +1,9 @@
 name: "Report check status and push to Cachix"
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "**"
-
+  workflow_run:
+    workflows: [build]
+    types: [completed]
 jobs:
   report-and-push:
     runs-on: ubuntu-latest
