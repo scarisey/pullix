@@ -140,7 +140,7 @@ let
       otel_http_endpoint = cfg.otelHttpEndpoint;
       private_key = cfg.privateKey;
       keep_last = cfg.keepLast;
-      webhooks = {
+      webhooks = filterAttrs (n: v: v != null) {
         on_test_success = cfg.webhooks.onTestSuccess;
         on_test_failure = cfg.webhooks.onTestFailure;
         on_prod_success = cfg.webhooks.onProdSuccess;

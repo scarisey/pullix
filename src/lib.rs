@@ -8,6 +8,7 @@ use crate::{
     nix_commands::NixCommands,
     observability::{LastCommitMetric, RemoteStateMetric},
     systemd::ServiceHandler,
+    webhooks::Webhooks,
 };
 use anyhow::Result;
 use tokio::time::sleep;
@@ -20,6 +21,7 @@ pub mod git;
 pub mod nix_commands;
 pub mod observability;
 pub mod systemd;
+pub mod webhooks;
 
 pub async fn run_pullix(
     config: &Config,
@@ -29,6 +31,7 @@ pub async fn run_pullix(
     service_handler: &impl ServiceHandler,
     last_commit_metric: LastCommitMetric,
     remote_state: RemoteStateMetric,
+    webhooks: &impl Webhooks,
 ) -> Result<()> {
     let mut elapsed_secs = config.poll_interval_secs;
     loop {
@@ -72,6 +75,7 @@ pub async fn run_pullix(
 
         if let Some(deployed) = next_action.deployments().and_then(|x| x.last_deployment()) {
             last_commit_metric.set(deployed);
+            webhooks.deployed_then_call(deployed).await?;
         };
         elapsed_secs = start_time.elapsed().as_secs();
     }
@@ -85,6 +89,7 @@ mod tests {
     use tokio::sync::mpsc::{Receiver, Sender};
 
     use crate::config::*;
+    use crate::deploy::Deployed;
     use crate::flake::{FlakeRef, FlakeType};
     use crate::nix_commands::NixCommandError;
     use crate::observability::DeploymentType;
@@ -280,6 +285,17 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
+    //  Mock Webhooks
+    // ---------------------------------------------------------------
+
+    struct MockWebhooks;
+    impl Webhooks for MockWebhooks {
+        async fn deployed_then_call(&self, _deployed: &Deployed) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    // ---------------------------------------------------------------
     //  Shared helpers
     // ---------------------------------------------------------------
 
@@ -418,6 +434,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
@@ -484,6 +501,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
@@ -550,6 +568,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
@@ -619,6 +638,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
@@ -694,6 +714,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
@@ -785,6 +806,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
@@ -886,6 +908,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
@@ -962,6 +985,7 @@ mod tests {
                         &MockServiceHandler,
                         last_commit_metric,
                         remote_state,
+                        &MockWebhooks,
                     )
                     .await
                     .unwrap()
