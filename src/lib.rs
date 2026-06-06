@@ -84,7 +84,7 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc::{Receiver, Sender};
 
-    use crate::config::{ConfigFlake, HomeManagerConfig, UrlSpecConfig};
+    use crate::config::*;
     use crate::flake::{FlakeRef, FlakeType};
     use crate::nix_commands::NixCommandError;
     use crate::observability::DeploymentType;
@@ -327,6 +327,7 @@ mod tests {
             otel_http_endpoint: None,
             private_key: None,
             keep_last: 100,
+            webhooks: WebhooksConfig::default(),
             github_token: None,
             home_manager: Some(HomeManagerConfig {
                 username: "foo".into(),
