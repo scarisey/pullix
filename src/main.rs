@@ -5,6 +5,7 @@ use pullix::{
     git::Git,
     observability::{DeploymentType, LastCommitMetric, RemoteStateMetric, setup},
     systemd::{SystemdServiceHandler, SystemdUserServiceHandler},
+    webhooks::WebhooksImpl,
     *,
 };
 use tracing::debug;
@@ -34,6 +35,7 @@ async fn main() -> Result<()> {
             let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::HomeManager);
             let remote_state = RemoteStateMetric::new(&meter, DeploymentType::HomeManager);
             let service_handler = SystemdUserServiceHandler;
+            let webhooks = WebhooksImpl::new(&config.webhooks)?;
             run_pullix(
                 &config,
                 &git,
@@ -42,6 +44,7 @@ async fn main() -> Result<()> {
                 &service_handler,
                 last_commit_metric,
                 remote_state,
+                &webhooks,
             )
             .await
             .inspect_err(|e| eprint!("{e}"))?
@@ -50,6 +53,7 @@ async fn main() -> Result<()> {
             let last_commit_metric = LastCommitMetric::new(&meter, DeploymentType::NixOS);
             let remote_state = RemoteStateMetric::new(&meter, DeploymentType::NixOS);
             let service_handler = SystemdServiceHandler;
+            let webhooks = WebhooksImpl::new(&config.webhooks)?;
             run_pullix(
                 &config,
                 &git,
@@ -58,6 +62,7 @@ async fn main() -> Result<()> {
                 &service_handler,
                 last_commit_metric,
                 remote_state,
+                &webhooks,
             )
             .await
             .inspect_err(|e| eprint!("{e}"))?

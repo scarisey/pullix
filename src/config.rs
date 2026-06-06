@@ -4,7 +4,7 @@ use std::fs;
 
 use crate::flake::FlakeType::{self};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebhookConfig {
     pub url: String,
     pub headers: Vec<String>,
@@ -12,22 +12,12 @@ pub struct WebhookConfig {
     pub data: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct WebhooksConfig {
     pub on_test_success: Option<WebhookConfig>,
     pub on_test_failure: Option<WebhookConfig>,
     pub on_prod_success: Option<WebhookConfig>,
     pub on_prod_failure: Option<WebhookConfig>,
-}
-impl Default for WebhooksConfig {
-    fn default() -> Self {
-        Self {
-            on_test_success: None,
-            on_test_failure: None,
-            on_prod_success: None,
-            on_prod_failure: None,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
