@@ -4,6 +4,22 @@ use std::fs;
 
 use crate::flake::FlakeType::{self};
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct WebhookConfig {
+    pub url: String,
+    pub headers: Vec<String>,
+    pub method: String,
+    pub data: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default)]
+pub struct WebhooksConfig {
+    pub on_test_success: Option<WebhookConfig>,
+    pub on_test_failure: Option<WebhookConfig>,
+    pub on_prod_success: Option<WebhookConfig>,
+    pub on_prod_failure: Option<WebhookConfig>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UrlSpecConfig {
     #[serde(rename = "ref")]
@@ -43,6 +59,7 @@ pub struct Config {
     pub github_token: Option<String>,
     #[serde(default = "keep_last_default")]
     pub keep_last: usize,
+    pub webhooks: WebhooksConfig,
     pub home_manager: Option<HomeManagerConfig>,
 }
 
@@ -153,6 +170,7 @@ pub mod tests {
             otel_http_endpoint: no_otel_endpoint(),
             private_key: None,
             keep_last: 100,
+            webhooks: WebhooksConfig::default(),
             home_manager: None,
             github_token: None,
         }

@@ -7,6 +7,32 @@
 with lib; let
   cfg = config.services.pullix;
 
+  webhookConfig = types.submodule {
+    options = {
+      url = mkOption {
+        type = types.str;
+        description = "URL of the webhook endpoint. Use <A_VAR> to reference environment variables.";
+      };
+      method = mkOption {
+        type = types.enum [ "GET" "POST" "PUT" "DELETE" ];
+        default = "POST";
+        description = "HTTP method to use for the webhook request.";
+      };
+      headers = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = "List of headers to send in the webhook request. Use <A_VAR> to reference environment variables.";
+        example = [ "Content-Type: application/json" "Authorization: Bearer <GH_TOKEN>" ];
+      };
+      data = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "Data to send in the webhook request serialized as a string. Use <A_VAR> to reference environment variables.";
+        example = '' { "foo":"bar" } '';
+      };
+
+    };
+  };
   urlSpecConfig = types.submodule {
     options = {
       ref = mkOption {
@@ -180,6 +206,12 @@ with lib; let
       otel_http_endpoint = cfg.otelHttpEndpoint;
       private_key = cfg.privateKey;
       keep_last = cfg.keepLast;
+      webhooks = filterAttrs (n: v: v != null) {
+        on_test_success = cfg.webhooks.onTestSuccess;
+        on_test_failure = cfg.webhooks.onTestFailure;
+        on_prod_success = cfg.webhooks.onProdSuccess;
+        on_prod_failure = cfg.webhooks.onProdFailure;
+      };
       home_manager = homeManagerToToml cfg.homeManager;
     }
   );
@@ -268,6 +300,27 @@ in {
       type = types.int;
       default = 100;
       description = "Number of deployments to keep in history (internal state)";
+    };
+
+    webhooks.onTestSuccess = mkOption {
+      type = types.nullOr webhookConfig;
+      default = null;
+      description = "Webhook to send deployment notifications to on test success";
+    };
+    webhooks.onTestFailure = mkOption {
+      type = types.nullOr webhookConfig;
+      default = null;
+      description = "Webhook to send deployment notifications to on test failure";
+    };
+    webhooks.onProdSuccess = mkOption {
+      type = types.nullOr webhookConfig;
+      default = null;
+      description = "Webhook to send deployment notifications to on prod success";
+    };
+    webhooks.onProdFailure = mkOption {
+      type = types.nullOr webhookConfig;
+      default = null;
+      description = "Webhook to send deployment notifications to on prod failure";
     };
 
     homeManager = mkOption {
