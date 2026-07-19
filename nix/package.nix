@@ -10,6 +10,7 @@
     libgit2
     libssh2
     zlib
+    cacert
   ];
 
   nativeBuildInputs = with pkgs; [
@@ -31,6 +32,7 @@ in
     # Set environment variables for native dependencies
     OPENSSL_NO_VENDOR = 1;
     PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
+    SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
 
     meta = with pkgs.lib; {
       description = "NixOS deployment automation tool";
