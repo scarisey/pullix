@@ -9,7 +9,7 @@ use reqwest::{
     self, Method,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
-use tracing::info;
+use tracing::{error, info};
 
 /// Replaces every `<VAR_NAME>` placeholder (uppercase letters, digits,
 /// underscores; must start with a letter) with the value of the corresponding
@@ -106,8 +106,22 @@ impl Webhook for WebhookImpl {
             .try_clone()
             .ok_or(anyhow::anyhow!("request is not cloneable"))?;
         let response = self.client.execute(r).await?;
+        let status = response.status();
 
-        Ok(response.status().to_string())
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<failed to read response body>".to_string());
+            return Err(anyhow::anyhow!(
+                "Webhook request to {} returned {}: {}",
+                self.request.url(),
+                status,
+                body
+            ));
+        }
+
+        Ok(status.to_string())
     }
 }
 pub trait Webhooks {
@@ -151,27 +165,43 @@ impl Webhooks for WebhooksImpl {
             Deployed::Init => (),
             Deployed::TestAligned(_) => {
                 if let Some(webhook) = &self.on_test_success {
-                    let response = webhook.send().await?;
-                    info!("Webhook on test success called and returned {}", response);
+                    match webhook.send().await {
+                        Ok(response) => {
+                            info!("Webhook on test success called and returned {}", response)
+                        }
+                        Err(err) => error!("Webhook on test success failed: {:#}", err),
+                    }
                 }
             }
 
             Deployed::ProdAligned(_) => {
                 if let Some(webhook) = &self.on_prod_success {
-                    let response = webhook.send().await?;
-                    info!("Webhook on prod success called and returned {}", response);
+                    match webhook.send().await {
+                        Ok(response) => {
+                            info!("Webhook on prod success called and returned {}", response)
+                        }
+                        Err(err) => error!("Webhook on prod success failed: {:#}", err),
+                    }
                 }
             }
             Deployed::TestFailed(_) => {
                 if let Some(webhook) = &self.on_test_failure {
-                    let response = webhook.send().await?;
-                    info!("Webhook on test failure called and returned {}", response);
+                    match webhook.send().await {
+                        Ok(response) => {
+                            info!("Webhook on test failure called and returned {}", response)
+                        }
+                        Err(err) => error!("Webhook on test failure failed: {:#}", err),
+                    }
                 }
             }
             Deployed::ProdFailed(_) => {
                 if let Some(webhook) = &self.on_prod_failure {
-                    let response = webhook.send().await?;
-                    info!("Webhook on prod failure called and returned {}", response);
+                    match webhook.send().await {
+                        Ok(response) => {
+                            info!("Webhook on prod failure called and returned {}", response)
+                        }
+                        Err(err) => error!("Webhook on prod failure failed: {:#}", err),
+                    }
                 }
             }
         };
@@ -399,6 +429,68 @@ mod tests {
         webhook.send().await.unwrap();
     }
 
+    #[tokio::test]
+    async fn webhook_send_unauthorized_is_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/hook"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("Bad credentials"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let config = WebhookConfig {
+            url: format!("{}/hook", server.uri()),
+            method: "POST".to_string(),
+            headers: vec![],
+            data: None,
+        };
+        let webhook = WebhookImpl::new(&config).unwrap();
+        let err = webhook.send().await.unwrap_err();
+        assert!(err.to_string().contains("401"));
+        assert!(err.to_string().contains("Bad credentials"));
+    }
+
+    #[tokio::test]
+    async fn webhook_send_not_found_is_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/hook"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let config = WebhookConfig {
+            url: format!("{}/hook", server.uri()),
+            method: "POST".to_string(),
+            headers: vec![],
+            data: None,
+        };
+        let webhook = WebhookImpl::new(&config).unwrap();
+        assert!(webhook.send().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn webhook_send_server_error_is_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/hook"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let config = WebhookConfig {
+            url: format!("{}/hook", server.uri()),
+            method: "POST".to_string(),
+            headers: vec![],
+            data: None,
+        };
+        let webhook = WebhookImpl::new(&config).unwrap();
+        assert!(webhook.send().await.is_err());
+    }
+
     // ─── WebhooksImpl::deployed_then_call ────────────────────────────────────
 
     fn make_commit() -> Commit {
@@ -511,5 +603,29 @@ mod tests {
         let webhooks = WebhooksImpl::new(&config).unwrap();
         webhooks.deployed_then_call(&Deployed::Init).await.unwrap();
         // wiremock asserts 0 requests were received when the server is dropped.
+    }
+
+    #[tokio::test]
+    async fn webhooks_dispatch_error_does_not_propagate() {
+        // A webhook endpoint that rejects the request (e.g. expired/invalid
+        // token) must not make deployed_then_call fail: the deployment state
+        // has already been persisted, so pullix must not crash/retry here.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/test-success"))
+            .respond_with(ResponseTemplate::new(401))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let config = WebhooksConfig {
+            on_test_success: Some(webhook_config_for(&server, "/test-success")),
+            ..Default::default()
+        };
+        let webhooks = WebhooksImpl::new(&config).unwrap();
+        webhooks
+            .deployed_then_call(&Deployed::TestAligned(make_commit()))
+            .await
+            .unwrap();
     }
 }
