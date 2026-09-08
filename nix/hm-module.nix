@@ -351,6 +351,9 @@ in {
         EnvironmentFile = lib.mkIf (cfg.environmentFile != null) cfg.environmentFile;
         ExecStart = "${self.packages.${pkgs.system}.pullix}/bin/pullix";
       };
+      Install = {
+        WantedBy = [ "default.target" ];
+      };
     };
   };
 }
