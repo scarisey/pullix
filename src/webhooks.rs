@@ -77,18 +77,26 @@ impl WebhookImpl {
         let url = expand_env_vars(&config.url)?;
         let mut request_builder =
             client.request(Method::from_bytes(config.method.as_bytes())?, url.as_str());
-        if !config.headers.is_empty() {
-            let mut headers = HeaderMap::new();
-            for raw_header in &config.headers {
-                let expanded = expand_env_vars(raw_header)?;
-                let (key, value) = parse_header(&expanded)?;
-                headers.insert(
-                    HeaderName::from_str(key.as_str())?,
-                    HeaderValue::from_str(value.as_str())?,
-                );
-            }
-            request_builder = request_builder.headers(headers);
+
+        // Some APIs (e.g. GitHub) reject requests with no User-Agent header
+        // ("Request forbidden by administrative rules"). reqwest doesn't set
+        // one by default, so provide a sane one here; a user-configured
+        // "User-Agent" header (below) overrides it.
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::USER_AGENT,
+            HeaderValue::from_static(concat!("pullix/", env!("CARGO_PKG_VERSION"))),
+        );
+        for raw_header in &config.headers {
+            let expanded = expand_env_vars(raw_header)?;
+            let (key, value) = parse_header(&expanded)?;
+            headers.insert(
+                HeaderName::from_str(key.as_str())?,
+                HeaderValue::from_str(value.as_str())?,
+            );
         }
+        request_builder = request_builder.headers(headers);
+
         if config.method.to_uppercase() == "POST"
             && let Some(ref body) = config.data
         {
@@ -363,6 +371,44 @@ mod tests {
         assert!(WebhookImpl::new(&config).is_err());
     }
 
+    #[test]
+    fn webhook_new_sets_default_user_agent() {
+        let config = WebhookConfig {
+            url: "https://example.com/hook".to_string(),
+            method: "POST".to_string(),
+            headers: vec![],
+            data: None,
+        };
+        let webhook = WebhookImpl::new(&config).unwrap();
+        let user_agent = webhook
+            .request
+            .headers()
+            .get(reqwest::header::USER_AGENT)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(user_agent, concat!("pullix/", env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn webhook_new_custom_user_agent_overrides_default() {
+        let config = WebhookConfig {
+            url: "https://example.com/hook".to_string(),
+            method: "POST".to_string(),
+            headers: vec!["User-Agent: my-custom-agent".to_string()],
+            data: None,
+        };
+        let webhook = WebhookImpl::new(&config).unwrap();
+        let user_agent = webhook
+            .request
+            .headers()
+            .get(reqwest::header::USER_AGENT)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(user_agent, "my-custom-agent");
+    }
+
     // ─── WebhookImpl send ─────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -384,6 +430,30 @@ mod tests {
         let webhook = WebhookImpl::new(&config).unwrap();
         let status = webhook.send().await.unwrap();
         assert_eq!(status, "200 OK");
+    }
+
+    #[tokio::test]
+    async fn webhook_send_includes_default_user_agent() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/hook"))
+            .and(header(
+                "user-agent",
+                concat!("pullix/", env!("CARGO_PKG_VERSION")),
+            ))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let config = WebhookConfig {
+            url: format!("{}/hook", server.uri()),
+            method: "POST".to_string(),
+            headers: vec![],
+            data: None,
+        };
+        let webhook = WebhookImpl::new(&config).unwrap();
+        webhook.send().await.unwrap();
     }
 
     #[tokio::test]
