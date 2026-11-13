@@ -11,6 +11,9 @@
     libssh2
     zlib
     cacert
+    # rustls' default crypto provider (aws-lc-rs) links against system AWS-LC,
+    # which the nixpkgs cargo build hook requires (AWS_LC_SYS_USE_SYSTEM=1).
+    aws-lc
   ];
 
   nativeBuildInputs = with pkgs; [
