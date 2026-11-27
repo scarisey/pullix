@@ -6,6 +6,10 @@
   # Build dependencies for git2-rs
   buildInputs = with pkgs; [
     openssl
+    # aws-lc-sys (pulled in by reqwest's rustls feature) is built with
+    # AWS_LC_SYS_USE_SYSTEM=1 by the cargo setup hook, so it needs a
+    # system-installed AWS-LC to link against.
+    aws-lc
     pkg-config
     libgit2
     libssh2
